@@ -107,6 +107,8 @@ export default function AdminSims() {
     }
   };
 
+  const byoSims = sims.filter((s) => String(s?.network || "").toUpperCase() === "MTN" && String(s?.iccid || "").startsWith("99"));
+
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       <div className="flex justify-between items-end">
@@ -115,6 +117,68 @@ export default function AdminSims() {
           <p className="text-sm text-slate-500 mt-1">Assign SIM cards to users and manage their network status.</p>
         </div>
         <Button onClick={() => setIsDialogOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 font-bold rounded-lg">+ Assign SIM</Button>
+      </div>
+
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">Bring Your Own SIM (MTN)</h3>
+            <p className="text-xs text-slate-500 mt-1">Client-added MTN SIM cards used for Data Bundle orders only.</p>
+          </div>
+          <div className="text-xs text-slate-500 font-semibold">{byoSims.length} SIMs</div>
+        </div>
+
+        {byoSims.length === 0 ? (
+          <div className="text-sm text-slate-500">No client-added MTN SIM cards yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-slate-50/50">
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Phone Number</TableHead>
+                  <TableHead>Network</TableHead>
+                  <TableHead>Bundle</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Balance</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {byoSims.map((sim) => (
+                  <TableRow key={sim.id}>
+                    <TableCell className="font-medium">{sim.userEmail}</TableCell>
+                    <TableCell>{sim.phoneNumber}</TableCell>
+                    <TableCell>{sim.network}</TableCell>
+                    <TableCell className="text-xs text-slate-700">{sim.activeBundle?.packageName || "-"}</TableCell>
+                    <TableCell className="text-xs text-slate-700">
+                      {sim.activeBundle?.expiryDate ? format(new Date(sim.activeBundle.expiryDate), "yyyy-MM-dd") : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-700">
+                      {sim.activeBundle?.remainingAmountMB !== null && sim.activeBundle?.remainingAmountMB !== undefined
+                        ? `${(Number(sim.activeBundle.remainingAmountMB) / 1024).toFixed(2)} GB`
+                        : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={sim.status === "active" ? "default" : "secondary"}>{sim.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openBalanceDialog(sim)}>
+                          Update Balance
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => updateSimStatus(sim.id, sim.status)}>
+                          {sim.status === "active" ? "Deactivate" : "Activate"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </div>
 
       <div className="glass-card overflow-hidden">

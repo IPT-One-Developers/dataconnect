@@ -11,14 +11,31 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "../../../components/ui/badge";
 import { format } from "date-fns";
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: "EFT / Bank Transfer",
+  payfast: "PayFast",
+  yoco: "Yoco",
+  payat: "Pay@",
+};
+
 export default function ClientLteOrders() {
   const { user } = useAuthStore();
   const [packages, setPackages] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [companySettings, setCompanySettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [ordering, setOrdering] = useState(false);
   const [selectedPkg, setSelectedPkg] = useState<any>(null);
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [confirmPaid, setConfirmPaid] = useState(false);
+  const [paymentRef, setPaymentRef] = useState<string>("");
+  const [payOrder, setPayOrder] = useState<any>(null);
   const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    mobile: "",
+    whatsapp: "",
     line1: "",
     line2: "",
     suburb: "",
@@ -27,17 +44,21 @@ export default function ClientLteOrders() {
     postalCode: "",
     notes: "",
   });
+  const deliveryFee = 149;
+  const createPaymentRef = () => `SC00${Math.floor(100000 + Math.random() * 900000)}`;
 
   const loadAll = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const [pkgRes, ordersRes] = await Promise.all([
+      const [pkgRes, ordersRes, settingsRes] = await Promise.all([
         api<{ packages: any[] }>("/api/lte-packages?activeOnly=true"),
         api<{ orders: any[] }>("/api/client/lte-orders"),
+        api<{ settings: any }>("/api/company-settings").catch(() => ({ settings: null })),
       ]);
       setPackages(pkgRes.packages);
       setOrders(ordersRes.orders);
+      setCompanySettings(settingsRes.settings);
     } catch (e) {
       console.error(e);
       alert("Failed to load LTE / 5G orders.");
@@ -56,6 +77,14 @@ export default function ClientLteOrders() {
       alert("Please enter a full address (street, city, province, and postal code).");
       return;
     }
+    if (!paymentMethod) {
+      alert("Please select a payment method.");
+      return;
+    }
+    if (!confirmPaid) {
+      alert("Please confirm that you have made payment.");
+      return;
+    }
     setOrdering(true);
     try {
       const address = formatAddress({
@@ -66,13 +95,30 @@ export default function ClientLteOrders() {
         province: form.province,
         postalCode: form.postalCode,
       });
+      const contactNotes = [
+        `Name: ${`${form.firstName} ${form.lastName}`.trim()}`.trim(),
+        form.email ? `Email: ${form.email}` : "",
+        form.mobile ? `Mobile: ${form.mobile}` : "",
+        form.whatsapp ? `WhatsApp: ${form.whatsapp}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const notes = [contactNotes, String(form.notes || "").trim()].filter(Boolean).join("\n\n");
       await api("/api/client/lte-orders", {
         method: "POST",
-        body: JSON.stringify({ packageId: selectedPkg.id, address, notes: form.notes }),
+        body: JSON.stringify({ packageId: selectedPkg.id, address, notes, paymentMethod, reference: paymentRef }),
       });
       alert("Your LTE / 5G order has been submitted.");
       setSelectedPkg(null);
+      setPaymentMethod("");
+      setConfirmPaid(false);
+      setPaymentRef("");
       setForm({
+        firstName: "",
+        lastName: "",
+        email: "",
+        mobile: "",
+        whatsapp: "",
         line1: "",
         line2: "",
         suburb: "",
@@ -116,7 +162,30 @@ export default function ClientLteOrders() {
               <p className="text-[10px] text-slate-400 mb-4 h-8">{pkg.description}</p>
               <button
                 className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
-                onClick={() => setSelectedPkg(pkg)}
+                onClick={() => {
+                  const fullName = String(user?.name || "").trim();
+                  const parts = fullName ? fullName.split(/\s+/) : [];
+                  const firstName = parts[0] || "";
+                  const lastName = parts.slice(1).join(" ");
+                  setSelectedPkg(pkg);
+                  setPaymentRef(createPaymentRef());
+                  setPaymentMethod("");
+                  setConfirmPaid(false);
+                  setForm({
+                    firstName,
+                    lastName,
+                    email: String(user?.email || ""),
+                    mobile: String(user?.phone || ""),
+                    whatsapp: String(user?.phone || ""),
+                    line1: "",
+                    line2: "",
+                    suburb: "",
+                    city: "",
+                    province: "",
+                    postalCode: "",
+                    notes: "",
+                  });
+                }}
               >
                 Order LTE / 5G
               </button>
@@ -142,47 +211,83 @@ export default function ClientLteOrders() {
                 <TableRow>
                   <TableHead>Created</TableHead>
                   <TableHead>Package</TableHead>
-                  <TableHead>Amount</TableHead>
+                  <TableHead>Totals</TableHead>
+                  <TableHead>Reference</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Admin Comment</TableHead>
+                  <TableHead className="text-right">Payment</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.map((o) => (
-                  <TableRow key={o.id}>
-                    <TableCell className="text-xs text-slate-600">
-                      {o.createdAt ? format(new Date(o.createdAt), "yyyy-MM-dd HH:mm") : "-"}
-                    </TableCell>
-                    <TableCell className="text-sm font-semibold text-slate-800">{o.packageName}</TableCell>
-                    <TableCell className="text-sm text-slate-800">R {Number(o.amount).toFixed(2)}</TableCell>
-                    <TableCell>
-                      <Badge
-                        className={
-                          o.status === "completed"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : o.status === "rejected"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-amber-100 text-amber-700"
-                        }
-                      >
-                        {o.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-700">{o.adminComment || "-"}</TableCell>
-                  </TableRow>
-                ))}
+                {orders.map((o) => {
+                  const packageAmount =
+                    typeof o.packageAmount === "number"
+                      ? o.packageAmount
+                      : typeof o.package_amount === "number"
+                        ? o.package_amount
+                        : Math.max(0, Number(o.amount || 0) - deliveryFee);
+                  const totalAmount = Number(o.amount || 0);
+                  const reference = String(o.reference || o.paymentReference || "");
+                  return (
+                    <TableRow key={o.id}>
+                      <TableCell className="text-xs text-slate-600">
+                        {o.createdAt ? format(new Date(o.createdAt), "yyyy-MM-dd HH:mm") : "-"}
+                      </TableCell>
+                      <TableCell className="text-sm font-semibold text-slate-800">{o.packageName}</TableCell>
+                      <TableCell className="text-sm text-slate-800">
+                        <div className="font-semibold">R {totalAmount.toFixed(2)}</div>
+                        <div className="text-xs text-slate-500">
+                          Package: R {packageAmount.toFixed(2)} • Delivery/Activation: R {deliveryFee.toFixed(2)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs font-mono text-slate-600">{reference || "-"}</TableCell>
+                      <TableCell>
+                        <Badge
+                          className={
+                            o.status === "completed"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : o.status === "rejected"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-amber-100 text-amber-700"
+                          }
+                        >
+                          {o.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-700">{o.adminComment || "-"}</TableCell>
+                      <TableCell className="text-right">
+                        {o.status === "pending" ? (
+                          <Button variant="outline" size="sm" onClick={() => setPayOrder(o)}>
+                            Make Payment
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         )}
       </div>
 
+
       {selectedPkg && (
         <Dialog
           open={!!selectedPkg}
           onOpenChange={() => {
             setSelectedPkg(null);
+            setPaymentMethod("");
+            setConfirmPaid(false);
+            setPaymentRef("");
             setForm({
+              firstName: "",
+              lastName: "",
+              email: "",
+              mobile: "",
+              whatsapp: "",
               line1: "",
               line2: "",
               suburb: "",
@@ -193,14 +298,49 @@ export default function ClientLteOrders() {
             });
           }}
         >
-          <DialogContent>
+          <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Order LTE / 5G Package</DialogTitle>
               <DialogDescription>
-                You are about to submit an order for <strong>{selectedPkg.name}</strong> at R{Number(selectedPkg.price).toFixed(2)}.
+                Sim Card, Activation and Delivery is <b>R149.00</b>. Please make payment before submitting your order.
               </DialogDescription>
             </DialogHeader>
             <div className="px-1 py-4 space-y-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold">{selectedPkg.name}</div>
+                  <div className="font-bold">
+                    Total: R {(Number(selectedPkg.price) + deliveryFee).toFixed(2)}
+                  </div>
+                </div>
+                <div className="mt-1 text-xs text-slate-600">
+                  Package: R {Number(selectedPkg.price).toFixed(2)} • Delivery/Activation: R {deliveryFee.toFixed(2)}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Name</Label>
+                  <Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="Name" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Surname</Label>
+                  <Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Surname" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Email Address</Label>
+                  <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email address" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Mobile No</Label>
+                  <Input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder="Mobile number" />
+                </div>
+                <div className="grid gap-2 md:col-span-2">
+                  <Label>WhatsApp Number</Label>
+                  <Input value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} placeholder="WhatsApp number" />
+                </div>
+              </div>
+
               <div className="grid gap-2">
                 <Label>Address</Label>
                 <div className="grid gap-3 md:grid-cols-2">
@@ -231,18 +371,98 @@ export default function ClientLteOrders() {
                 <Label>Notes</Label>
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional" />
               </div>
+
+              <div className="space-y-2">
+                <Label>Payment Reference</Label>
+                <div className="text-sm text-slate-700 font-mono">{paymentRef || "-"}</div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Payment Method</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select payment method...">
+                      {(v) =>
+                        v ? PAYMENT_METHOD_LABELS[String(v)] ?? String(v) : "Select payment method..."
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bank_transfer">EFT / Bank Transfer</SelectItem>
+                    {Array.isArray(companySettings?.payment_processors) &&
+                      companySettings.payment_processors.map((p: any) => {
+                        const label = String(p);
+                        const v =
+                          label === "PayFast" ? "payfast" : label === "Yoco" ? "yoco" : label === "Pay@" ? "payat" : "";
+                        if (!v) return null;
+                        return (
+                          <SelectItem key={v} value={v}>
+                            {label}
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {paymentMethod === "bank_transfer" ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 whitespace-pre-line">
+                  {companySettings?.banking_details ? String(companySettings.banking_details) : "Banking details not configured yet."}
+                </div>
+              ) : null}
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" checked={confirmPaid} onChange={(e) => setConfirmPaid(e.target.checked)} />
+                I confirm that I have made payment.
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setSelectedPkg(null)} disabled={ordering}>
                 Cancel
               </Button>
-              <Button onClick={submitOrder} disabled={ordering}>
+              <Button onClick={submitOrder} disabled={ordering || !paymentMethod || !confirmPaid}>
                 {ordering ? "Submitting..." : "Submit LTE / 5G Order"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog
+        open={!!payOrder}
+        onOpenChange={(open) => {
+          if (!open) setPayOrder(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Make Payment</DialogTitle>
+            <DialogDescription>Use the reference below when making payment.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Payment Reference</Label>
+              <div className="mt-1 text-sm text-slate-700 font-mono">{String(payOrder?.reference || "-")}</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="font-semibold">{String(payOrder?.packageName || "")}</div>
+                <div className="font-bold">Total: R {Number(payOrder?.amount || 0).toFixed(2)}</div>
+              </div>
+            </div>
+            {companySettings?.banking_details ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 whitespace-pre-line">
+                {String(companySettings.banking_details)}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setPayOrder(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

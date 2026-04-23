@@ -273,8 +273,20 @@ export default function AdminOrders() {
                     {view === "coverage"
                       ? o.address
                       : view === "sim"
-                        ? o.network
-                        : o.packageName}
+                        ? (
+                            <div>
+                              <div>{o.network || "SIM Order"}</div>
+                              {o.reference ? <div className="text-xs font-mono text-slate-500">{o.reference}</div> : null}
+                            </div>
+                          )
+                        : view === "lte"
+                          ? (
+                              <div>
+                                <div>{o.packageName}</div>
+                                {o.reference ? <div className="text-xs font-mono text-slate-500">{o.reference}</div> : null}
+                              </div>
+                            )
+                          : o.packageName}
                   </TableCell>
                   <TableCell className={view === "topups" ? "font-mono text-xs font-bold text-indigo-600" : "text-sm"}>
                     {view === "coverage" ? o.networkPreference || "-" : view === "topups" ? o.reference : o.status}

@@ -6,26 +6,38 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Label } from "../../../components/ui/label";
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: "EFT / Bank Transfer",
+  payfast: "PayFast",
+  yoco: "Yoco",
+  payat: "Pay@",
+};
+
 export default function Packages() {
   const { user } = useAuthStore();
   const [packages, setPackages] = useState<any[]>([]);
   const [sims, setSims] = useState<any[]>([]);
+  const [companySettings, setCompanySettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPkg, setSelectedPkg] = useState<any>(null);
   const [selectedSimId, setSelectedSimId] = useState<string>('');
   const [ordering, setOrdering] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [confirmPaid, setConfirmPaid] = useState(false);
 
   useEffect(() => {
     async function loadData() {
       if (!user) return;
       try {
         setLoading(true);
-        const [pkgRes, simRes] = await Promise.all([
+        const [pkgRes, simRes, settingsRes] = await Promise.all([
           api<{ packages: any[] }>("/api/packages?activeOnly=true"),
           api<{ sims: any[] }>("/api/client/sims"),
+          api<{ settings: any }>("/api/company-settings").catch(() => ({ settings: null })),
         ]);
         setPackages(pkgRes.packages);
         setSims(simRes.sims);
+        setCompanySettings(settingsRes.settings);
       } catch (e) {
         console.error(e);
         alert("Failed to load packages");
@@ -41,17 +53,27 @@ export default function Packages() {
       alert("Please select a SIM card to top-up.");
       return;
     }
+    if (!paymentMethod) {
+      alert("Please select a payment method.");
+      return;
+    }
+    if (!confirmPaid) {
+      alert("Please confirm that you have made payment.");
+      return;
+    }
     
     setOrdering(true);
     try {
       await api("/api/client/orders", {
         method: "POST",
-        body: JSON.stringify({ packageId: selectedPkg.id, simId: selectedSimId }),
+        body: JSON.stringify({ packageId: selectedPkg.id, simId: selectedSimId, paymentMethod }),
       });
       
       alert('Your top-up order has been successfully submitted to the admin for processing.');
       setSelectedPkg(null);
       setSelectedSimId('');
+      setPaymentMethod("");
+      setConfirmPaid(false);
     } catch (e) {
       console.error(e);
       alert('Failed to place order.');
@@ -110,7 +132,13 @@ export default function Packages() {
                </div>
                <Select value={selectedSimId} onValueChange={setSelectedSimId}>
                   <SelectTrigger>
-                     <SelectValue placeholder="Select target SIM card..." />
+                     <SelectValue placeholder="Select target SIM card...">
+                       {(v) => {
+                         if (!v) return "Select target SIM card...";
+                         const sim = sims.find((s: any) => String(s.id) === String(v));
+                         return sim?.phoneNumber ? String(sim.phoneNumber) : String(v);
+                       }}
+                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                      {sims.length === 0 && <SelectItem value="disabled" disabled>No active SIM cards found</SelectItem>}
@@ -121,10 +149,49 @@ export default function Packages() {
                      ))}
                   </SelectContent>
                </Select>
+
+               <div className="pt-2 space-y-2">
+                 <Label>Payment Method</Label>
+                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                   <SelectTrigger>
+                     <SelectValue placeholder="Select payment method...">
+                       {(v) =>
+                         v ? PAYMENT_METHOD_LABELS[String(v)] ?? String(v) : "Select payment method..."
+                       }
+                     </SelectValue>
+                   </SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="bank_transfer">EFT / Bank Transfer</SelectItem>
+                     {Array.isArray(companySettings?.payment_processors) &&
+                       companySettings.payment_processors.map((p: any) => {
+                         const label = String(p);
+                         const v =
+                           label === "PayFast" ? "payfast" : label === "Yoco" ? "yoco" : label === "Pay@" ? "payat" : "";
+                         if (!v) return null;
+                         return (
+                           <SelectItem key={v} value={v}>
+                             {label}
+                           </SelectItem>
+                         );
+                       })}
+                   </SelectContent>
+                 </Select>
+               </div>
+
+               {paymentMethod === "bank_transfer" ? (
+                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 whitespace-pre-line">
+                   {companySettings?.banking_details ? String(companySettings.banking_details) : "Banking details not configured yet."}
+                 </div>
+               ) : null}
+
+               <label className="flex items-center gap-2 text-sm text-slate-700 pt-1">
+                 <input type="checkbox" checked={confirmPaid} onChange={(e) => setConfirmPaid(e.target.checked)} />
+                 I confirm that I have made payment before submitting this top-up order.
+               </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setSelectedPkg(null)}>Cancel</Button>
-              <Button onClick={handlePurchase} disabled={ordering || !selectedSimId}>
+              <Button onClick={handlePurchase} disabled={ordering || !selectedSimId || !paymentMethod || !confirmPaid}>
                 {ordering ? 'Placing Order...' : 'Submit Top-Up Order'}
               </Button>
             </DialogFooter>

@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS orders (
   package_id uuid NOT NULL REFERENCES data_packages(id) ON DELETE RESTRICT,
   sim_id uuid NOT NULL REFERENCES sim_cards(id) ON DELETE RESTRICT,
   reference text NOT NULL DEFAULT '',
+  payment_method text NOT NULL DEFAULT '',
   status order_status NOT NULL DEFAULT 'pending',
   amount numeric(12,2) NOT NULL CHECK (amount >= 0),
   package_name text NOT NULL DEFAULT '',
@@ -133,6 +134,8 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS orders_status_created_at_idx ON orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS orders_user_id_created_at_idx ON orders(user_id, created_at DESC);
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS lte_packages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -157,7 +160,11 @@ CREATE TABLE IF NOT EXISTS lte_orders (
   package_id uuid NOT NULL REFERENCES lte_packages(id) ON DELETE RESTRICT,
   status order_status NOT NULL DEFAULT 'pending',
   amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  package_amount numeric(12,2) NOT NULL DEFAULT 0 CHECK (package_amount >= 0),
+  delivery_fee numeric(12,2) NOT NULL DEFAULT 149 CHECK (delivery_fee >= 0),
   package_name text NOT NULL DEFAULT '',
+  reference text NOT NULL DEFAULT '',
+  payment_method text NOT NULL DEFAULT '',
   address text NOT NULL DEFAULT '',
   notes text NOT NULL DEFAULT '',
   admin_comment text NOT NULL DEFAULT '',
@@ -168,12 +175,20 @@ CREATE TABLE IF NOT EXISTS lte_orders (
 CREATE INDEX IF NOT EXISTS lte_orders_status_created_at_idx ON lte_orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS lte_orders_user_id_created_at_idx ON lte_orders(user_id, created_at DESC);
 
+ALTER TABLE lte_orders ADD COLUMN IF NOT EXISTS package_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE lte_orders ADD COLUMN IF NOT EXISTS delivery_fee numeric(12,2) NOT NULL DEFAULT 149;
+ALTER TABLE lte_orders ADD COLUMN IF NOT EXISTS reference text NOT NULL DEFAULT '';
+ALTER TABLE lte_orders ADD COLUMN IF NOT EXISTS payment_method text NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS sim_orders (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   network text NOT NULL DEFAULT '',
   address text NOT NULL DEFAULT '',
   notes text NOT NULL DEFAULT '',
+  reference text NOT NULL DEFAULT '',
+  payment_method text NOT NULL DEFAULT '',
+  amount numeric(12,2) NOT NULL DEFAULT 99 CHECK (amount >= 0),
   status order_status NOT NULL DEFAULT 'pending',
   admin_comment text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -182,6 +197,10 @@ CREATE TABLE IF NOT EXISTS sim_orders (
 
 CREATE INDEX IF NOT EXISTS sim_orders_status_created_at_idx ON sim_orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS sim_orders_user_id_created_at_idx ON sim_orders(user_id, created_at DESC);
+
+ALTER TABLE sim_orders ADD COLUMN IF NOT EXISTS reference text NOT NULL DEFAULT '';
+ALTER TABLE sim_orders ADD COLUMN IF NOT EXISTS payment_method text NOT NULL DEFAULT '';
+ALTER TABLE sim_orders ADD COLUMN IF NOT EXISTS amount numeric(12,2) NOT NULL DEFAULT 99;
 
 DO $$ BEGIN
   CREATE TYPE coverage_status AS ENUM ('open', 'responded', 'closed');

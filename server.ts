@@ -311,6 +311,7 @@ async function ensureExtendedSchema() {
          package_id uuid not null references data_packages(id) on delete restrict,
          sim_id uuid not null references sim_cards(id) on delete restrict,
          reference text not null default '',
+         payment_method text not null default '',
          status order_status not null default 'pending',
          amount numeric(12,2) not null check (amount >= 0),
          package_name text not null default '',
@@ -320,6 +321,7 @@ async function ensureExtendedSchema() {
     ).catch(() => {});
     await pool.query("create index if not exists orders_status_created_at_idx on orders(status, created_at desc);").catch(() => {});
     await pool.query("create index if not exists orders_user_id_created_at_idx on orders(user_id, created_at desc);").catch(() => {});
+    await pool.query(`alter table orders add column if not exists payment_method text not null default '';`).catch(() => {});
 
     await pool.query(
       `create table if not exists transactions (
@@ -379,7 +381,11 @@ async function ensureExtendedSchema() {
          package_id uuid not null references lte_packages(id) on delete restrict,
          status order_status not null default 'pending',
          amount numeric(12,2) not null check (amount >= 0),
+         package_amount numeric(12,2) not null default 0 check (package_amount >= 0),
+         delivery_fee numeric(12,2) not null default 149 check (delivery_fee >= 0),
          package_name text not null default '',
+         reference text not null default '',
+         payment_method text not null default '',
          address text not null default '',
          notes text not null default '',
          admin_comment text not null default '',
@@ -389,6 +395,10 @@ async function ensureExtendedSchema() {
     ).catch(() => {});
     await pool.query("create index if not exists lte_orders_status_created_at_idx on lte_orders(status, created_at desc)").catch(() => {});
     await pool.query("create index if not exists lte_orders_user_id_created_at_idx on lte_orders(user_id, created_at desc)").catch(() => {});
+    await pool.query(`alter table lte_orders add column if not exists package_amount numeric(12,2) not null default 0;`).catch(() => {});
+    await pool.query(`alter table lte_orders add column if not exists delivery_fee numeric(12,2) not null default 149;`).catch(() => {});
+    await pool.query(`alter table lte_orders add column if not exists reference text not null default '';`).catch(() => {});
+    await pool.query(`alter table lte_orders add column if not exists payment_method text not null default '';`).catch(() => {});
 
     await pool.query(
       `create table if not exists sim_orders (
@@ -397,6 +407,9 @@ async function ensureExtendedSchema() {
          network text not null default '',
          address text not null default '',
          notes text not null default '',
+         reference text not null default '',
+         payment_method text not null default '',
+         amount numeric(12,2) not null default 99 check (amount >= 0),
          status order_status not null default 'pending',
          admin_comment text not null default '',
          created_at timestamptz not null default now(),
@@ -405,6 +418,9 @@ async function ensureExtendedSchema() {
     ).catch(() => {});
     await pool.query("create index if not exists sim_orders_status_created_at_idx on sim_orders(status, created_at desc)").catch(() => {});
     await pool.query("create index if not exists sim_orders_user_id_created_at_idx on sim_orders(user_id, created_at desc)").catch(() => {});
+    await pool.query(`alter table sim_orders add column if not exists reference text not null default '';`).catch(() => {});
+    await pool.query(`alter table sim_orders add column if not exists payment_method text not null default '';`).catch(() => {});
+    await pool.query(`alter table sim_orders add column if not exists amount numeric(12,2) not null default 99;`).catch(() => {});
 
     await pool.query(
       `create table if not exists coverage_checks (
@@ -1758,6 +1774,51 @@ async function startServer() {
     });
   });
 
+  app.post("/api/client/sims", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const phoneRaw = String(req.body?.phoneNumber || "").trim();
+
+    const phoneNumber = cleanPhoneNumber(phoneRaw);
+    const phoneDigits = phoneNumber.replace(/[^\d]/g, "");
+
+    if (!phoneNumber || phoneDigits.length < 10) {
+      return res.status(400).json({ error: "invalid_input" });
+    }
+
+    const network = "MTN";
+    const iccid =
+      String(req.body?.iccid || "")
+        .trim()
+        .replace(/[^\d]/g, "") || `99${phoneDigits.slice(-10).padStart(10, "0")}${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+
+    try {
+      const { rows } = await pool.query(
+        `insert into sim_cards (user_id, iccid, phone_number, network, status)
+         values ($1, $2, $3, $4, 'active')
+         returning id, iccid, phone_number, network, status, created_at`,
+        [userId, iccid, phoneNumber, network]
+      );
+      const s = rows[0];
+      res.json({
+        sim: {
+          id: s.id,
+          iccid: s.iccid,
+          phoneNumber: s.phone_number,
+          network: s.network,
+          status: s.status,
+          createdAt: s.created_at,
+        },
+      });
+    } catch (e: any) {
+      const code = String(e?.code || "");
+      if (code === "23505") {
+        return res.status(409).json({ error: "already_exists" });
+      }
+      console.error(e);
+      res.status(500).json({ error: "create_failed" });
+    }
+  });
+
   app.get("/api/client/dashboard", requireAuth, async (req, res) => {
     const userId = req.user!.id;
     const sims = await pool.query("select count(*)::int as count from sim_cards where user_id = $1", [userId]);
@@ -1778,6 +1839,9 @@ async function startServer() {
     const userId = req.user!.id;
     const packageId = String(req.body?.packageId || "");
     const simId = String(req.body?.simId || "");
+    const rawPaymentMethod = String(req.body?.paymentMethod || "").trim();
+    const allowedPaymentMethods = new Set(["bank_transfer", "payfast", "yoco", "payat"]);
+    const paymentMethod = allowedPaymentMethods.has(rawPaymentMethod) ? rawPaymentMethod : "bank_transfer";
     if (!packageId || !simId) return res.status(400).json({ error: "invalid_input" });
 
     const simRes = await pool.query("select phone_number from sim_cards where id = $1 and user_id = $2 limit 1", [
@@ -1797,10 +1861,10 @@ async function startServer() {
     const amount = Number(pkgRes.rows[0].price);
 
     const { rows } = await pool.query(
-      `insert into orders (user_id, package_id, sim_id, reference, status, amount, package_name)
-       values ($1, $2, $3, $4, 'pending', $5, $6)
+      `insert into orders (user_id, package_id, sim_id, reference, payment_method, status, amount, package_name)
+       values ($1, $2, $3, $4, $5, 'pending', $6, $7)
        returning id, status, created_at`,
-      [userId, packageId, simId, reference, amount, pkgName]
+      [userId, packageId, simId, reference, paymentMethod, amount, pkgName]
     );
     res.json({ order: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
@@ -1808,7 +1872,7 @@ async function startServer() {
   app.get("/api/client/orders", requireAuth, async (req, res) => {
     const userId = req.user!.id;
     const { rows } = await pool.query(
-      `select o.id, o.package_id, o.sim_id, o.reference, o.status, o.amount, o.package_name, o.created_at,
+      `select o.id, o.package_id, o.sim_id, o.reference, o.payment_method, o.status, o.amount, o.package_name, o.created_at,
               s.phone_number, s.network
        from orders o
        join sim_cards s on s.id = o.sim_id
@@ -1824,6 +1888,7 @@ async function startServer() {
         simPhoneNumber: o.phone_number,
         simNetwork: o.network,
         reference: o.reference,
+        paymentMethod: o.payment_method,
         status: o.status,
         amount: Number(o.amount),
         packageName: o.package_name,
@@ -1837,6 +1902,11 @@ async function startServer() {
     const packageId = String(req.body?.packageId || "");
     const address = String(req.body?.address || "").trim();
     const notes = String(req.body?.notes || "").trim();
+    const rawPaymentMethod = String(req.body?.paymentMethod || "").trim();
+    const allowedPaymentMethods = new Set(["bank_transfer", "payfast", "yoco", "payat"]);
+    const paymentMethod = allowedPaymentMethods.has(rawPaymentMethod) ? rawPaymentMethod : "bank_transfer";
+    const incomingRef = String(req.body?.reference || "").trim();
+    const reference = /^SC00[A-Za-z0-9]{4,}$/.test(incomingRef) ? incomingRef : `SC00${Math.floor(100000 + Math.random() * 900000)}`;
     if (!packageId) return res.status(400).json({ error: "invalid_input" });
 
     const pkgRes = await pool.query("select id, name, price from lte_packages where id = $1 and is_active = true limit 1", [
@@ -1845,12 +1915,14 @@ async function startServer() {
     if (!pkgRes.rows[0]) return res.status(400).json({ error: "invalid_package" });
 
     const pkgName = pkgRes.rows[0].name;
-    const amount = Number(pkgRes.rows[0].price);
+    const packageAmount = Number(pkgRes.rows[0].price);
+    const deliveryFee = 149;
+    const amount = packageAmount + deliveryFee;
     const { rows } = await pool.query(
-      `insert into lte_orders (user_id, package_id, status, amount, package_name, address, notes)
-       values ($1, $2, 'pending', $3, $4, $5, $6)
+      `insert into lte_orders (user_id, package_id, status, amount, package_amount, delivery_fee, package_name, reference, payment_method, address, notes)
+       values ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10)
        returning id, status, created_at`,
-      [userId, packageId, amount, pkgName, address, notes]
+      [userId, packageId, amount, packageAmount, deliveryFee, pkgName, reference, paymentMethod, address, notes]
     );
     res.json({ order: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
@@ -1858,7 +1930,7 @@ async function startServer() {
   app.get("/api/client/lte-orders", requireAuth, async (req, res) => {
     const userId = req.user!.id;
     const { rows } = await pool.query(
-      `select id, package_id, status, amount, package_name, address, notes, admin_comment, created_at
+      `select id, package_id, status, amount, package_amount, delivery_fee, package_name, reference, payment_method, address, notes, admin_comment, created_at
        from lte_orders
        where user_id = $1
        order by created_at desc`,
@@ -1870,7 +1942,11 @@ async function startServer() {
         packageId: o.package_id,
         status: o.status,
         amount: Number(o.amount),
+        packageAmount: Number(o.package_amount ?? 0),
+        deliveryFee: Number(o.delivery_fee ?? 0),
         packageName: o.package_name,
+        reference: o.reference,
+        paymentMethod: o.payment_method,
         address: o.address,
         notes: o.notes,
         adminComment: o.admin_comment,
@@ -1897,7 +1973,11 @@ async function startServer() {
         packageId: o.package_id,
         status: o.status,
         amount: Number(o.amount),
+        packageAmount: Number(o.package_amount ?? 0),
+        deliveryFee: Number(o.delivery_fee ?? 0),
         packageName: o.package_name,
+        reference: o.reference,
+        paymentMethod: o.payment_method,
         address: o.address,
         notes: o.notes,
         adminComment: o.admin_comment,
@@ -1967,12 +2047,16 @@ async function startServer() {
     const network = String(req.body?.network || "").trim();
     const address = String(req.body?.address || "").trim();
     const notes = String(req.body?.notes || "").trim();
-    if (!network) return res.status(400).json({ error: "invalid_input" });
+    const rawPaymentMethod = String(req.body?.paymentMethod || "").trim();
+    const allowedPaymentMethods = new Set(["bank_transfer", "payfast", "yoco", "payat"]);
+    const paymentMethod = allowedPaymentMethods.has(rawPaymentMethod) ? rawPaymentMethod : "bank_transfer";
+    const amount = 99;
+    const reference = String(req.user?.phone || "").trim() || String(req.user?.email || "").trim();
     const { rows } = await pool.query(
-      `insert into sim_orders (user_id, network, address, notes, status)
-       values ($1, $2, $3, $4, 'pending')
+      `insert into sim_orders (user_id, network, address, notes, reference, payment_method, amount, status)
+       values ($1, $2, $3, $4, $5, $6, $7, 'pending')
        returning id, status, created_at`,
-      [userId, network, address, notes]
+      [userId, network, address, notes, reference, paymentMethod, amount]
     );
     res.json({ order: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
@@ -1980,7 +2064,7 @@ async function startServer() {
   app.get("/api/client/sim-orders", requireAuth, async (req, res) => {
     const userId = req.user!.id;
     const { rows } = await pool.query(
-      `select id, network, address, notes, status, admin_comment, created_at
+      `select id, network, address, notes, reference, payment_method, amount, status, admin_comment, created_at
        from sim_orders
        where user_id = $1
        order by created_at desc`,
@@ -1992,6 +2076,9 @@ async function startServer() {
         network: o.network,
         address: o.address,
         notes: o.notes,
+        reference: o.reference,
+        paymentMethod: o.payment_method,
+        amount: Number(o.amount ?? 0),
         status: o.status,
         adminComment: o.admin_comment,
         createdAt: o.created_at,
@@ -2017,6 +2104,9 @@ async function startServer() {
         network: o.network,
         address: o.address,
         notes: o.notes,
+        reference: o.reference,
+        paymentMethod: o.payment_method,
+        amount: Number(o.amount ?? 0),
         status: o.status,
         adminComment: o.admin_comment,
         createdAt: o.created_at,
@@ -2183,6 +2273,7 @@ async function startServer() {
         packageId: o.package_id,
         simId: o.sim_id,
         reference: o.reference,
+        paymentMethod: o.payment_method,
         status: o.status,
         amount: Number(o.amount),
         packageName: o.package_name,
@@ -2239,10 +2330,11 @@ async function startServer() {
          values ($1, $2, $3, $4, $4, $5, 'active')`,
         [order.user_id, order.sim_id, order.package_id, Number(pkg.amount_mb), expiry.toISOString()]
       );
+      const pm = String(order.payment_method || "bank_transfer") || "bank_transfer";
       await client.query(
         `insert into transactions (user_id, package_id, amount, reference, payment_method, status, created_at)
-         values ($1, $2, $3, $4, 'bank_transfer', 'success', now())`,
-        [order.user_id, order.package_id, Number(pkg.price), order.reference]
+         values ($1, $2, $3, $4, $5, 'success', now())`,
+        [order.user_id, order.package_id, Number(pkg.price), order.reference, pm]
       );
       await client.query("commit");
       const phoneRes = await pool.query("select phone from users where id = $1 limit 1", [order.user_id]);
