@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { Card } from "../../../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../../components/ui/dialog";
@@ -13,7 +12,8 @@ export default function AdminPackages() {
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: '', description: '', amountGB: '', price: '', durationDays: '', isActive: true });
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ name: "", description: "", amountGB: "", price: "", durationDays: "", isActive: true });
 
   const loadData = async () => {
     try {
@@ -33,7 +33,7 @@ export default function AdminPackages() {
   }, []);
 
   const openCreateDialog = () => {
-    setFormData({ name: '', description: '', amountGB: '', price: '', durationDays: '', isActive: true });
+    setFormData({ name: "", description: "", amountGB: "", price: "", durationDays: "", isActive: true });
     setEditingId(null);
     setIsDialogOpen(true);
   };
@@ -45,7 +45,7 @@ export default function AdminPackages() {
       amountGB: (pkg.amountMB / 1024).toString(),
       price: pkg.price.toString(),
       durationDays: pkg.durationDays.toString(),
-      isActive: pkg.isActive
+      isActive: pkg.isActive,
     });
     setEditingId(pkg.id);
     setIsDialogOpen(true);
@@ -60,7 +60,7 @@ export default function AdminPackages() {
         amountMB: Number(formData.amountGB) * 1024,
         price: Number(formData.price),
         durationDays: Number(formData.durationDays),
-        isActive: formData.isActive
+        isActive: formData.isActive,
       };
 
       if (editingId) {
@@ -78,7 +78,7 @@ export default function AdminPackages() {
       loadData();
     } catch (err) {
       console.error(err);
-      alert(editingId ? 'Failed to update package' : 'Failed to add package');
+      alert(editingId ? "Failed to update package" : "Failed to add package");
     }
   };
 
@@ -90,8 +90,33 @@ export default function AdminPackages() {
       });
       loadData();
     } catch (e) {
-       console.error(e);
+      console.error(e);
     }
+  };
+
+  const reorder = async (next: any[]) => {
+    setPackages(next);
+    try {
+      await api("/api/admin/packages/reorder", {
+        method: "POST",
+        body: JSON.stringify({ ids: next.map((p) => p.id) }),
+      });
+    } catch (e) {
+      console.error(e);
+      loadData();
+    }
+  };
+
+  const handleDropOn = async (targetId: string, draggedId: string | null) => {
+    if (!draggedId || draggedId === targetId) return;
+    const current = [...packages];
+    const fromIndex = current.findIndex((p) => p.id === draggedId);
+    const toIndex = current.findIndex((p) => p.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const moved = current.splice(fromIndex, 1)[0];
+    current.splice(toIndex, 0, moved);
+    setDraggingId(null);
+    await reorder(current);
   };
 
   return (
@@ -99,7 +124,7 @@ export default function AdminPackages() {
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-lg font-bold text-slate-800">Manage Packages</h2>
-          <p className="text-sm text-slate-500 mt-1">Create and configure data bundles available for purchase.</p>
+          <p className="text-sm text-slate-500 mt-1">Create, configure and reorder data bundles available for purchase.</p>
         </div>
         <Button onClick={openCreateDialog} className="bg-indigo-600 hover:bg-indigo-700 font-bold rounded-lg">+ Create Package</Button>
       </div>
@@ -118,8 +143,27 @@ export default function AdminPackages() {
           </TableHeader>
           <TableBody>
             {packages.map(pkg => (
-              <TableRow key={pkg.id}>
-                <TableCell className="font-medium">{pkg.name}</TableCell>
+              <TableRow
+                key={pkg.id}
+                draggable
+                onDragStart={(e) => {
+                  setDraggingId(pkg.id);
+                  e.dataTransfer.setData("text/plain", pkg.id);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnd={() => setDraggingId(null)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const dragged = e.dataTransfer.getData("text/plain") || draggingId;
+                  handleDropOn(pkg.id, dragged);
+                }}
+                className={draggingId === pkg.id ? "opacity-60" : ""}
+              >
+                <TableCell className="font-medium">
+                  <span className="mr-2 inline-block select-none text-slate-400 cursor-grab">≡</span>
+                  {pkg.name}
+                </TableCell>
                 <TableCell>{(pkg.amountMB / 1024).toFixed(1)}</TableCell>
                 <TableCell>R{pkg.price.toFixed(2)}</TableCell>
                 <TableCell>{pkg.durationDays} Days</TableCell>
@@ -151,25 +195,48 @@ export default function AdminPackages() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-2">
                 <Label>Package Name</Label>
-                <Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Description</Label>
-                <Input value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} required />
+                <Input
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  required
+                />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Amount (GB)</Label>
-                  <Input type="number" step="0.01" value={formData.amountGB} onChange={e => setFormData({ ...formData, amountGB: e.target.value })} required />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Price (ZAR)</Label>
-                  <Input type="number" step="0.01" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} required />
-                </div>
+              <div className="grid gap-2">
+                <Label>Amount (GB)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.amountGB}
+                  onChange={(e) => setFormData({ ...formData, amountGB: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Price (ZAR)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                  required
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Duration (Days)</Label>
-                <Input type="number" value={formData.durationDays} onChange={e => setFormData({ ...formData, durationDays: e.target.value })} required />
+                <Input
+                  type="number"
+                  value={formData.durationDays}
+                  onChange={(e) => setFormData({ ...formData, durationDays: e.target.value })}
+                  required
+                />
               </div>
               <DialogFooter className="mt-4">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>

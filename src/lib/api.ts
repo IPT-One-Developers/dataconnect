@@ -13,13 +13,24 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: "include",
   });
 
+  const contentType = String(res.headers.get("content-type") || "");
   const text = await res.text();
   let data: any = null;
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = null;
+      const err: ApiError = new Error("invalid_json");
+      err.status = res.status;
+      err.code = contentType.includes("text/html") ? "unexpected_html" : "invalid_json";
+      throw err;
+    }
+  } else {
+    if (res.ok) {
+      const err: ApiError = new Error("empty_response");
+      err.status = res.status;
+      err.code = "empty_response";
+      throw err;
     }
   }
 
@@ -28,6 +39,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const err: ApiError = new Error(code || `http_${res.status}`);
     err.status = res.status;
     err.code = code;
+    if (typeof window !== "undefined") {
+      if (res.status === 401) {
+        window.location.assign("/login");
+      } else if (res.status === 403 && code === "forbidden") {
+        window.location.assign("/login");
+      }
+    }
     throw err;
   }
 

@@ -36,14 +36,14 @@ export default function ClientOrders() {
     if (!user) return;
     setLoading(true);
     try {
-      const [pkgRes, simRes, ordersRes] = await Promise.all([
+      const [dataPkgRes, simRes, topupOrdersRes] = await Promise.all([
         api<{ packages: any[] }>("/api/packages?activeOnly=true"),
         api<{ sims: any[] }>("/api/client/sims"),
         api<{ orders: OrderRow[] }>("/api/client/orders"),
       ]);
-      setPackages(pkgRes.packages);
+      setPackages(dataPkgRes.packages);
       setSims(simRes.sims);
-      setOrders(ordersRes.orders);
+      setOrders(topupOrdersRes.orders);
     } catch (e) {
       console.error(e);
       alert("Failed to load orders.");
@@ -86,8 +86,8 @@ export default function ClientOrders() {
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       <div>
-        <h2 className="text-lg font-bold text-slate-800">Orders & Top-Ups</h2>
-        <p className="text-sm text-slate-500 mt-1">Select a package and submit a top-up order for one of your SIMs.</p>
+        <h2 className="text-lg font-bold text-slate-800">Data Orders</h2>
+        <p className="text-sm text-slate-500 mt-1">Top-up data bundles and track your order history.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -126,8 +126,7 @@ export default function ClientOrders() {
             <DialogHeader>
               <DialogTitle>Order Data Bundle Top-Up</DialogTitle>
               <DialogDescription>
-                You are about to submit an order for <strong>{selectedPkg.name}</strong> at R
-                {Number(selectedPkg.price).toFixed(2)}. This request will be sent to the administrator to process the top-up.
+                You are about to submit an order for <strong>{selectedPkg.name}</strong> at R{Number(selectedPkg.price).toFixed(2)}.
               </DialogDescription>
             </DialogHeader>
             <div className="px-1 py-4 space-y-4">
@@ -156,7 +155,7 @@ export default function ClientOrders() {
               </Select>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setSelectedPkg(null)}>
+              <Button variant="outline" onClick={() => setSelectedPkg(null)} disabled={ordering}>
                 Cancel
               </Button>
               <Button onClick={handlePurchase} disabled={ordering || !selectedSimId}>
@@ -169,7 +168,7 @@ export default function ClientOrders() {
 
       <div className="glass-card p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-slate-800">My Orders</h3>
+          <h3 className="text-sm font-bold text-slate-800">My Top-Up Orders</h3>
           <Button variant="outline" size="sm" onClick={loadAll}>
             Refresh
           </Button>

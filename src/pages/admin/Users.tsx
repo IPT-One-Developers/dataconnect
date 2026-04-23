@@ -32,9 +32,25 @@ export default function AdminUsers() {
       setLoading(true);
       const res = await api<{ users: any[] }>("/api/admin/users");
       setUsers(res.users);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to load users:", e);
-      alert("Failed to load users. You might not have sufficient permissions.");
+      const code = String(e?.code || e?.message || "");
+      if (code === "unauthorized") {
+        alert("Your session has expired. Please log in again.");
+        navigate("/login");
+        return;
+      }
+      if (code === "account_suspended") {
+        alert("Your account is suspended. Please contact support.");
+        navigate("/login");
+        return;
+      }
+      if (code === "forbidden") {
+        alert("Admin access is required to view this page.");
+        navigate("/login");
+        return;
+      }
+      alert("Failed to load users.");
     } finally {
       setLoading(false);
     }
@@ -52,10 +68,31 @@ export default function AdminUsers() {
           body: JSON.stringify({ role: currentRole === "admin" ? "client" : "admin" }),
         });
         loadUsers();
+        alert("Role updated. The user may need to log out and log in again to see the correct dashboard.");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Failed to update role.');
+      const code = String(e?.code || e?.message || "");
+      if (code === "unauthorized") {
+        alert("Your session has expired. Please log in again.");
+        navigate("/login");
+        return;
+      }
+      if (code === "account_suspended") {
+        alert("Your account is suspended. Please contact support.");
+        navigate("/login");
+        return;
+      }
+      if (code === "forbidden") {
+        alert("Admin access is required to update roles.");
+        navigate("/login");
+        return;
+      }
+      if (code === "db_unavailable") {
+        alert("Database is unavailable. Please try again.");
+        return;
+      }
+      alert("Failed to update role.");
     }
   };
 
@@ -105,6 +142,35 @@ export default function AdminUsers() {
     }
   };
 
+  const seedDemoData = async () => {
+    try {
+      const res = await api<{ ok: boolean; demoPassword?: string }>("/api/dev/seed-demo", { method: "POST" });
+      await loadUsers();
+      alert(res.demoPassword ? `Demo data added. Client password: ${res.demoPassword}` : "Demo data added.");
+    } catch (e: any) {
+      const code = String(e?.code || e?.message || "");
+      if (code === "unauthorized") {
+        alert("Your session has expired. Please log in again.");
+        navigate("/login");
+        return;
+      }
+      if (code === "account_suspended") {
+        alert("Your account is suspended. Please contact support.");
+        navigate("/login");
+        return;
+      }
+      if (code === "forbidden") {
+        alert("Admin access is required to seed demo data.");
+        return;
+      }
+      if (code === "not_found") {
+        alert("Demo seeding is not available in this environment.");
+        return;
+      }
+      alert("Failed to seed demo data.");
+    }
+  };
+
   if (loading) return <div className="p-8">Loading users...</div>;
 
   const filteredUsers = users.filter(u => 
@@ -120,7 +186,14 @@ export default function AdminUsers() {
           <h2 className="text-lg font-bold text-slate-800">Client Manager</h2>
           <p className="text-sm text-slate-500 mt-1">Platform user accounts, client profiles, and their roles.</p>
         </div>
-        <Button onClick={() => setIsAddOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 font-bold rounded-lg">+ Add Client</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={seedDemoData} className="font-bold rounded-lg">
+            Seed Demo Data
+          </Button>
+          <Button onClick={() => setIsAddOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 font-bold rounded-lg">
+            + Add Client
+          </Button>
+        </div>
       </div>
 
       <div className="glass-card overflow-hidden">

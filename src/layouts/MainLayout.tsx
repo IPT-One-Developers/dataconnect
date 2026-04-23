@@ -20,7 +20,8 @@ export default function MainLayout() {
   const clientLinks = [
     { name: 'Overview', href: '/client', icon: LayoutDashboard },
     { name: 'My SIMs', href: '/client/sims', icon: SimCardIcon },
-    { name: 'Orders', href: '/client/orders', icon: SignalHigh },
+    { name: 'Data Orders', href: '/client/orders', icon: SignalHigh },
+    { name: 'LTE / 5G Orders', href: '/client/lte-orders', icon: SignalHigh },
     { name: 'Transactions', href: '/client/transactions', icon: History },
     { name: 'Settings', href: '/client/settings', icon: Bell },
   ];
@@ -29,6 +30,7 @@ export default function MainLayout() {
     { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { name: 'TopUp Orders', href: '/admin/orders', icon: History },
     { name: 'Manage Packages', href: '/admin/packages', icon: Package },
+    { name: 'LTE / 5G Packages', href: '/admin/lte-packages', icon: SignalHigh },
     { name: 'Manage SIM IDs', href: '/admin/sims', icon: SimCardIcon },
     { name: 'Client Manager', href: '/admin/users', icon: Users },
     { name: 'Sales Reports', href: '/admin/reports', icon: BarChart3 },

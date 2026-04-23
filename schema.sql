@@ -79,11 +79,15 @@ CREATE TABLE IF NOT EXISTS data_packages (
   price numeric(12,2) NOT NULL CHECK (price >= 0),
   duration_days integer NOT NULL CHECK (duration_days > 0),
   is_active boolean NOT NULL DEFAULT true,
+  order_index integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS data_packages_is_active_idx ON data_packages(is_active);
+CREATE INDEX IF NOT EXISTS data_packages_order_index_idx ON data_packages(order_index);
+
+ALTER TABLE data_packages ADD COLUMN IF NOT EXISTS order_index integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS sim_cards (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -130,6 +134,77 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_status_created_at_idx ON orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS orders_user_id_created_at_idx ON orders(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS lte_packages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  data_cap_gb integer,
+  speed_mbps integer,
+  price numeric(12,2) NOT NULL CHECK (price >= 0),
+  duration_days integer NOT NULL CHECK (duration_days > 0),
+  is_active boolean NOT NULL DEFAULT true,
+  order_index integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS lte_packages_is_active_idx ON lte_packages(is_active);
+CREATE INDEX IF NOT EXISTS lte_packages_order_index_idx ON lte_packages(order_index);
+
+CREATE TABLE IF NOT EXISTS lte_orders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  package_id uuid NOT NULL REFERENCES lte_packages(id) ON DELETE RESTRICT,
+  status order_status NOT NULL DEFAULT 'pending',
+  amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  package_name text NOT NULL DEFAULT '',
+  address text NOT NULL DEFAULT '',
+  notes text NOT NULL DEFAULT '',
+  admin_comment text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS lte_orders_status_created_at_idx ON lte_orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS lte_orders_user_id_created_at_idx ON lte_orders(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS sim_orders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  network text NOT NULL DEFAULT '',
+  address text NOT NULL DEFAULT '',
+  notes text NOT NULL DEFAULT '',
+  status order_status NOT NULL DEFAULT 'pending',
+  admin_comment text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sim_orders_status_created_at_idx ON sim_orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS sim_orders_user_id_created_at_idx ON sim_orders(user_id, created_at DESC);
+
+DO $$ BEGIN
+  CREATE TYPE coverage_status AS ENUM ('open', 'responded', 'closed');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS coverage_checks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  network_preference text NOT NULL DEFAULT '',
+  address text NOT NULL DEFAULT '',
+  notes text NOT NULL DEFAULT '',
+  status coverage_status NOT NULL DEFAULT 'open',
+  admin_comment text NOT NULL DEFAULT '',
+  suggested_package_ids uuid[] NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS coverage_checks_status_created_at_idx ON coverage_checks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS coverage_checks_user_id_created_at_idx ON coverage_checks(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS transactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -161,6 +236,8 @@ CREATE TABLE IF NOT EXISTS company_settings (
   support_phone text NOT NULL DEFAULT '',
   banking_details text NOT NULL DEFAULT '',
   logo_url text NOT NULL DEFAULT '',
+  payment_processors jsonb NOT NULL DEFAULT '[]'::jsonb,
+  payment_processor_settings jsonb NOT NULL DEFAULT '{}'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 

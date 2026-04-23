@@ -8,23 +8,31 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
+import { format } from "date-fns";
 
 export default function AdminSims() {
   const [sims, setSims] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [packages, setPackages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ userId: '', iccid: '', phoneNumber: '', network: 'MTN', status: 'active' });
+  const [isBalanceDialogOpen, setIsBalanceDialogOpen] = useState(false);
+  const [balanceSim, setBalanceSim] = useState<any>(null);
+  const [balanceForm, setBalanceForm] = useState({ packageId: "", expiryDate: "", remainingAmountGB: "" });
+  const selectedClient = users.find((u) => u.id === formData.userId) || null;
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [simsRes, usersRes] = await Promise.all([
+      const [simsRes, clientsRes, packagesRes] = await Promise.all([
         api<{ sims: any[] }>("/api/admin/sims"),
-        api<{ users: any[] }>("/api/admin/users"),
+        api<{ clients: any[] }>("/api/admin/clients"),
+        api<{ packages: any[] }>("/api/packages?activeOnly=false"),
       ]);
-      setUsers(usersRes.users);
+      setUsers(clientsRes.clients);
       setSims(simsRes.sims);
+      setPackages(packagesRes.packages);
     } catch (err) {
       console.error("Failed to load SIM data", err);
     } finally {
@@ -60,6 +68,45 @@ export default function AdminSims() {
     }
   };
 
+  const openBalanceDialog = (sim: any) => {
+    setBalanceSim(sim);
+    const remainingMB =
+      sim?.activeBundle?.remainingAmountMB !== null && sim?.activeBundle?.remainingAmountMB !== undefined
+        ? Number(sim.activeBundle.remainingAmountMB)
+        : null;
+    setBalanceForm({
+      packageId: sim?.activeBundle?.packageId || "",
+      expiryDate: sim?.activeBundle?.expiryDate ? format(new Date(sim.activeBundle.expiryDate), "yyyy-MM-dd") : "",
+      remainingAmountGB: remainingMB !== null && Number.isFinite(remainingMB) ? (remainingMB / 1024).toFixed(2) : "",
+    });
+    setIsBalanceDialogOpen(true);
+  };
+
+  const submitBalanceUpdate = async () => {
+    if (!balanceSim?.id) return;
+    if (!balanceForm.packageId) return alert("Please select a bundle/package.");
+    const remainingAmountGB = Number(balanceForm.remainingAmountGB);
+    if (!Number.isFinite(remainingAmountGB) || remainingAmountGB < 0) return alert("Please enter a valid remaining GB.");
+    const remainingAmountMB = Math.round(remainingAmountGB * 1024);
+
+    try {
+      await api(`/api/admin/sims/${balanceSim.id}/bundle`, {
+        method: "PUT",
+        body: JSON.stringify({
+          packageId: balanceForm.packageId,
+          remainingAmountMB,
+          expiryDate: balanceForm.expiryDate || undefined,
+        }),
+      });
+      setIsBalanceDialogOpen(false);
+      setBalanceSim(null);
+      loadData();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update balance.");
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       <div className="flex justify-between items-end">
@@ -78,6 +125,9 @@ export default function AdminSims() {
               <TableHead>Phone Number</TableHead>
               <TableHead>ICCID</TableHead>
               <TableHead>Network</TableHead>
+              <TableHead>Bundle</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead>Balance</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -89,21 +139,95 @@ export default function AdminSims() {
                 <TableCell>{sim.phoneNumber}</TableCell>
                 <TableCell className="text-xs text-mono">{sim.iccid}</TableCell>
                 <TableCell>{sim.network}</TableCell>
+                <TableCell className="text-xs text-slate-700">{sim.activeBundle?.packageName || "-"}</TableCell>
+                <TableCell className="text-xs text-slate-700">
+                  {sim.activeBundle?.expiryDate ? format(new Date(sim.activeBundle.expiryDate), "yyyy-MM-dd") : "-"}
+                </TableCell>
+                <TableCell className="text-xs text-slate-700">
+                  {sim.activeBundle?.remainingAmountMB !== null && sim.activeBundle?.remainingAmountMB !== undefined
+                    ? `${(Number(sim.activeBundle.remainingAmountMB) / 1024).toFixed(2)} GB`
+                    : "-"}
+                </TableCell>
                 <TableCell>
                   <Badge variant={sim.status === 'active' ? 'default' : 'secondary'}>
                     {sim.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button variant="outline" size="sm" onClick={() => updateSimStatus(sim.id, sim.status)}>
-                    {sim.status === 'active' ? 'Deactivate' : 'Activate'}
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openBalanceDialog(sim)}>
+                      Update Balance
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => updateSimStatus(sim.id, sim.status)}>
+                      {sim.status === 'active' ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {isBalanceDialogOpen && (
+        <Dialog
+          open={isBalanceDialogOpen}
+          onOpenChange={(open) => {
+            setIsBalanceDialogOpen(open);
+            if (!open) setBalanceSim(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Update Data Balance</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              <div className="grid gap-2">
+                <Label>Bundle / Package</Label>
+                <Select value={balanceForm.packageId} onValueChange={(v) => setBalanceForm({ ...balanceForm, packageId: v })}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a bundle..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {packages.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name} ({p.amountMB >= 1024 ? `${(p.amountMB / 1024).toFixed(1)} GB` : `${p.amountMB} MB`})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Expiry Date</Label>
+                <Input
+                  type="date"
+                  value={balanceForm.expiryDate}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, expiryDate: e.target.value })}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Remaining (GB)</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  value={balanceForm.remainingAmountGB}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, remainingAmountGB: e.target.value })}
+                  min={0}
+                  step="0.01"
+                />
+              </div>
+            </div>
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setIsBalanceDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submitBalanceUpdate}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {isDialogOpen && (
          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -115,12 +239,16 @@ export default function AdminSims() {
               <div className="grid gap-2">
                 <Label>Linked Client</Label>
                 <Select value={formData.userId} onValueChange={v => setFormData({ ...formData, userId: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select a client..." /></SelectTrigger>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {selectedClient ? `${selectedClient.name || 'Unnamed Client'} (${selectedClient.email})` : "Select a client..."}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
-                    {users.filter(u => u.role === 'client').map(u => (
-                       <SelectItem key={u.id} value={u.id}>
-                         {u.name || 'Unnamed Client'} ({u.email})
-                       </SelectItem>
+                    {users.map(u => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name || 'Unnamed Client'} ({u.email})
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

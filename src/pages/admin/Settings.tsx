@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 
 export default function AdminSettings() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState({
@@ -12,23 +14,79 @@ export default function AdminSettings() {
     supportEmail: '',
     supportPhone: '',
     bankingDetails: '',
-    logoUrl: ''
+    logoUrl: '',
+    paymentProcessors: [] as string[],
+    paymentProcessorSettings: {
+      payfast: { merchantId: "", merchantKey: "", passphrase: "", sandbox: true },
+      yoco: { publicKey: "", secretKey: "", sandbox: false },
+      payat: { merchantId: "", apiKey: "", sandbox: false },
+    } as any,
   });
+  const paymentProcessorOptions = ["PayFast", "Yoco", "Pay@"] as const;
 
   const loadSettings = async () => {
     try {
-      const res = await api<{ settings: any }>("/api/company-settings");
+      const res = await api<{ settings: any }>("/api/admin/company-settings");
       if (res.settings) {
+        const processorsRaw = res.settings.payment_processors;
+        const processors = Array.isArray(processorsRaw)
+          ? processorsRaw.map((p: any) => String(p))
+          : typeof processorsRaw === "string" && processorsRaw
+            ? processorsRaw.split(",").map((p) => p.trim()).filter(Boolean)
+            : [];
+        const existingPps = res.settings.payment_processor_settings && typeof res.settings.payment_processor_settings === "object"
+          ? res.settings.payment_processor_settings
+          : {};
+
         setSettings({
           companyName: res.settings.company_name ?? "DataConnect",
           supportEmail: res.settings.support_email ?? "",
           supportPhone: res.settings.support_phone ?? "",
           bankingDetails: res.settings.banking_details ?? "",
           logoUrl: res.settings.logo_url ?? "",
+          paymentProcessors: processors,
+          paymentProcessorSettings: {
+            payfast: {
+              merchantId: String(existingPps?.payfast?.merchantId ?? ""),
+              merchantKey: String(existingPps?.payfast?.merchantKey ?? ""),
+              passphrase: String(existingPps?.payfast?.passphrase ?? ""),
+              sandbox: Boolean(existingPps?.payfast?.sandbox ?? true),
+            },
+            yoco: {
+              publicKey: String(existingPps?.yoco?.publicKey ?? ""),
+              secretKey: String(existingPps?.yoco?.secretKey ?? ""),
+              sandbox: Boolean(existingPps?.yoco?.sandbox ?? false),
+            },
+            payat: {
+              merchantId: String(existingPps?.payat?.merchantId ?? ""),
+              apiKey: String(existingPps?.payat?.apiKey ?? ""),
+              sandbox: Boolean(existingPps?.payat?.sandbox ?? false),
+            },
+          },
         });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to load settings", e);
+      const code = String(e?.code || e?.message || "");
+      if (code === "unauthorized") {
+        alert("Your session has expired. Please log in again.");
+        navigate("/login");
+        return;
+      }
+      if (code === "account_suspended") {
+        alert("Your account is suspended. Please contact support.");
+        navigate("/login");
+        return;
+      }
+      if (code === "forbidden") {
+        alert("Admin access is required to view this page.");
+        navigate("/login");
+        return;
+      }
+      if (code === "db_unavailable") {
+        alert("Database is unavailable. Please try again.");
+        return;
+      }
     } finally {
       setLoading(false);
     }
@@ -44,12 +102,39 @@ export default function AdminSettings() {
     try {
       await api("/api/admin/company-settings", {
         method: "PUT",
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          companyName: settings.companyName,
+          supportEmail: settings.supportEmail,
+          supportPhone: settings.supportPhone,
+          bankingDetails: settings.bankingDetails,
+          logoUrl: settings.logoUrl,
+          paymentProcessors: settings.paymentProcessors,
+          paymentProcessorSettings: settings.paymentProcessorSettings,
+        }),
       });
       alert("Company Settings updated successfully.");
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Failed to update settings. Make sure you are an Admin.");
+      const code = String(e?.code || e?.message || "");
+      if (code === "unauthorized") {
+        alert("Your session has expired. Please log in again.");
+        navigate("/login");
+        return;
+      }
+      if (code === "account_suspended") {
+        alert("Your account is suspended. Please contact support.");
+        navigate("/login");
+        return;
+      }
+      if (code === "forbidden") {
+        alert("Admin access is required to update company settings.");
+        return;
+      }
+      if (code === "db_unavailable") {
+        alert("Database is unavailable. Please try again.");
+        return;
+      }
+      alert("Failed to update settings.");
     } finally {
       setSaving(false);
     }
@@ -127,6 +212,214 @@ export default function AdminSettings() {
                />
                <p className="text-[11px] text-slate-500">Clients will see these details when initiating a TopUp via EFT method.</p>
             </div>
+
+            <div className="space-y-2 max-w-2xl">
+              <Label className="font-semibold text-slate-700">Payment Processors</Label>
+              <div className="flex flex-wrap gap-2">
+                {paymentProcessorOptions.map((p) => {
+                  const selected = settings.paymentProcessors.includes(p);
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => {
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessors: selected
+                            ? prev.paymentProcessors.filter((x) => x !== p)
+                            : [...prev.paymentProcessors, p],
+                        }));
+                      }}
+                      className={
+                        selected
+                          ? "inline-flex h-8 items-center rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white"
+                          : "inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      }
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-slate-500">Enable which payment processors are available for client checkout.</p>
+            </div>
+
+            {settings.paymentProcessors.includes("PayFast") && (
+              <div className="space-y-4 max-w-2xl">
+                <div className="text-sm font-bold text-slate-800">PayFast</div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-slate-700">Merchant ID</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.payfast.merchantId}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            payfast: { ...prev.paymentProcessorSettings.payfast, merchantId: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-slate-700">Merchant Key</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.payfast.merchantKey}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            payfast: { ...prev.paymentProcessorSettings.payfast, merchantKey: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label className="font-semibold text-slate-700">Passphrase (optional)</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.payfast.passphrase}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            payfast: { ...prev.paymentProcessorSettings.payfast, passphrase: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.paymentProcessorSettings.payfast.sandbox)}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        paymentProcessorSettings: {
+                          ...prev.paymentProcessorSettings,
+                          payfast: { ...prev.paymentProcessorSettings.payfast, sandbox: e.target.checked },
+                        },
+                      }))
+                    }
+                  />
+                  Sandbox mode
+                </label>
+              </div>
+            )}
+
+            {settings.paymentProcessors.includes("Yoco") && (
+              <div className="space-y-4 max-w-2xl">
+                <div className="text-sm font-bold text-slate-800">Yoco</div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-slate-700">Public Key</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.yoco.publicKey}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            yoco: { ...prev.paymentProcessorSettings.yoco, publicKey: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-slate-700">Secret Key</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.yoco.secretKey}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            yoco: { ...prev.paymentProcessorSettings.yoco, secretKey: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.paymentProcessorSettings.yoco.sandbox)}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        paymentProcessorSettings: {
+                          ...prev.paymentProcessorSettings,
+                          yoco: { ...prev.paymentProcessorSettings.yoco, sandbox: e.target.checked },
+                        },
+                      }))
+                    }
+                  />
+                  Sandbox mode
+                </label>
+              </div>
+            )}
+
+            {settings.paymentProcessors.includes("Pay@") && (
+              <div className="space-y-4 max-w-2xl">
+                <div className="text-sm font-bold text-slate-800">Pay@</div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-slate-700">Merchant ID</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.payat.merchantId}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            payat: { ...prev.paymentProcessorSettings.payat, merchantId: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-slate-700">API Key</Label>
+                    <Input
+                      value={settings.paymentProcessorSettings.payat.apiKey}
+                      onChange={(e) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          paymentProcessorSettings: {
+                            ...prev.paymentProcessorSettings,
+                            payat: { ...prev.paymentProcessorSettings.payat, apiKey: e.target.value },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.paymentProcessorSettings.payat.sandbox)}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        paymentProcessorSettings: {
+                          ...prev.paymentProcessorSettings,
+                          payat: { ...prev.paymentProcessorSettings.payat, sandbox: e.target.checked },
+                        },
+                      }))
+                    }
+                  />
+                  Sandbox mode
+                </label>
+              </div>
+            )}
 
             <div className="flex justify-end pt-4">
                <Button type="submit" size="lg" disabled={saving} className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-8">
