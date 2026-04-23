@@ -139,6 +139,132 @@ async function ensureExtendedSchema() {
     }
 
     await pool.query(
+      `do $$ begin
+         create type user_role as enum ('admin', 'client');
+       exception
+         when duplicate_object then null;
+       end $$;`
+    ).catch(() => {});
+    await pool.query(
+      `do $$ begin
+         create type user_status as enum ('active', 'suspended');
+       exception
+         when duplicate_object then null;
+       end $$;`
+    ).catch(() => {});
+    await pool.query(
+      `do $$ begin
+         create type sim_status as enum ('active', 'inactive');
+       exception
+         when duplicate_object then null;
+       end $$;`
+    ).catch(() => {});
+    await pool.query(
+      `do $$ begin
+         create type bundle_status as enum ('active', 'depleted', 'expired');
+       exception
+         when duplicate_object then null;
+       end $$;`
+    ).catch(() => {});
+    await pool.query(
+      `do $$ begin
+         create type transaction_status as enum ('success', 'failed', 'pending');
+       exception
+         when duplicate_object then null;
+       end $$;`
+    ).catch(() => {});
+
+    await pool.query(
+      `create table if not exists users (
+         id uuid primary key default gen_random_uuid(),
+         email text not null unique,
+         password_hash text not null,
+         name text not null default '',
+         phone text not null default '',
+         role user_role not null default 'client',
+         status user_status not null default 'active',
+         photo_url text,
+         created_at timestamptz not null default now(),
+         updated_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+
+    await pool.query(
+      `create table if not exists sessions (
+         id uuid primary key default gen_random_uuid(),
+         user_id uuid not null references users(id) on delete cascade,
+         created_at timestamptz not null default now(),
+         expires_at timestamptz not null
+       );`
+    ).catch(() => {});
+    await pool.query("create index if not exists sessions_user_id_idx on sessions(user_id);").catch(() => {});
+    await pool.query("create index if not exists sessions_expires_at_idx on sessions(expires_at);").catch(() => {});
+
+    await pool.query(
+      `create table if not exists password_reset_requests (
+         id uuid primary key default gen_random_uuid(),
+         email text not null,
+         user_id uuid references users(id) on delete set null,
+         ip text not null default '',
+         user_agent text not null default '',
+         created_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+    await pool.query(
+      "create index if not exists password_reset_requests_created_at_idx on password_reset_requests(created_at desc);"
+    ).catch(() => {});
+    await pool.query(
+      "create index if not exists password_reset_requests_email_created_at_idx on password_reset_requests(email, created_at desc);"
+    ).catch(() => {});
+
+    await pool.query(
+      `create table if not exists data_packages (
+         id uuid primary key default gen_random_uuid(),
+         name text not null,
+         description text not null default '',
+         amount_mb integer not null check (amount_mb > 0),
+         price numeric(12,2) not null check (price >= 0),
+         duration_days integer not null check (duration_days > 0),
+         is_active boolean not null default true,
+         order_index integer not null default 0,
+         created_at timestamptz not null default now(),
+         updated_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+    await pool.query("create index if not exists data_packages_is_active_idx on data_packages(is_active);").catch(() => {});
+
+    await pool.query(
+      `create table if not exists sim_cards (
+         id uuid primary key default gen_random_uuid(),
+         user_id uuid not null references users(id) on delete cascade,
+         iccid text not null unique,
+         phone_number text not null unique,
+         network text not null default '',
+         status sim_status not null default 'active',
+         created_at timestamptz not null default now(),
+         updated_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+    await pool.query("create index if not exists sim_cards_user_id_idx on sim_cards(user_id);").catch(() => {});
+
+    await pool.query(
+      `create table if not exists active_bundles (
+         id uuid primary key default gen_random_uuid(),
+         user_id uuid not null references users(id) on delete cascade,
+         sim_card_id uuid not null references sim_cards(id) on delete cascade,
+         package_id uuid not null references data_packages(id) on delete restrict,
+         total_amount_mb integer not null check (total_amount_mb > 0),
+         remaining_amount_mb integer not null check (remaining_amount_mb >= 0),
+         expiry_date timestamptz not null,
+         status bundle_status not null default 'active',
+         created_at timestamptz not null default now(),
+         updated_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+    await pool.query("create index if not exists active_bundles_user_id_status_idx on active_bundles(user_id, status);").catch(() => {});
+    await pool.query("create index if not exists active_bundles_expiry_date_idx on active_bundles(expiry_date);").catch(() => {});
+
+    await pool.query(
       `create table if not exists company_settings (
          id text primary key,
          company_name text not null default 'DataConnect',
@@ -177,6 +303,49 @@ async function ensureExtendedSchema() {
 
     await pool.query(`alter table data_packages add column if not exists order_index integer not null default 0;`).catch(() => {});
     await pool.query(`create index if not exists data_packages_order_index_idx on data_packages(order_index);`).catch(() => {});
+
+    await pool.query(
+      `create table if not exists orders (
+         id uuid primary key default gen_random_uuid(),
+         user_id uuid not null references users(id) on delete cascade,
+         package_id uuid not null references data_packages(id) on delete restrict,
+         sim_id uuid not null references sim_cards(id) on delete restrict,
+         reference text not null default '',
+         status order_status not null default 'pending',
+         amount numeric(12,2) not null check (amount >= 0),
+         package_name text not null default '',
+         created_at timestamptz not null default now(),
+         updated_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+    await pool.query("create index if not exists orders_status_created_at_idx on orders(status, created_at desc);").catch(() => {});
+    await pool.query("create index if not exists orders_user_id_created_at_idx on orders(user_id, created_at desc);").catch(() => {});
+
+    await pool.query(
+      `create table if not exists transactions (
+         id uuid primary key default gen_random_uuid(),
+         user_id uuid not null references users(id) on delete cascade,
+         type text not null default '',
+         amount numeric(12,2) not null check (amount >= 0),
+         status transaction_status not null default 'pending',
+         reference text not null default '',
+         created_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
+    await pool.query("create index if not exists transactions_user_id_created_at_idx on transactions(user_id, created_at desc);").catch(() => {});
+    await pool.query("create index if not exists transactions_status_created_at_idx on transactions(status, created_at desc);").catch(() => {});
+
+    await pool.query(
+      `create table if not exists user_preferences (
+         user_id uuid primary key references users(id) on delete cascade,
+         expiry_reminders boolean not null default true,
+         reminder_days integer not null default 3,
+         low_balance_alerts boolean not null default true,
+         low_balance_threshold_mb integer not null default 500,
+         push_enabled boolean not null default false,
+         updated_at timestamptz not null default now()
+       );`
+    ).catch(() => {});
 
     await pool.query(
       `create table if not exists lte_packages (
