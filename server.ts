@@ -443,6 +443,15 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
+  const shouldUseSecureCookie = (req: express.Request) => {
+    const override = String(process.env.COOKIE_SECURE || "").trim().toLowerCase();
+    if (override === "true") return true;
+    if (override === "false") return false;
+    if (process.env.NODE_ENV !== "production") return false;
+    const xfProto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+    return Boolean(req.secure) || xfProto.includes("https");
+  };
+
   const wrapHandler = (fn: any) => {
     if (typeof fn !== "function") return fn;
     if (fn.length === 4) return fn;
@@ -706,7 +715,7 @@ async function startServer() {
     res.clearCookie(SESSION_COOKIE, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       path: "/",
     });
     if (sessionId) {
@@ -753,7 +762,7 @@ async function startServer() {
     res.cookie(SESSION_COOKIE, sessionId, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       path: "/",
       expires: expiresAt,
     });
@@ -813,7 +822,7 @@ async function startServer() {
     res.cookie(SESSION_COOKIE, sessionId, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       path: "/",
       expires: expiresAt,
     });
@@ -869,7 +878,7 @@ async function startServer() {
     res.cookie(SESSION_COOKIE, sessionId, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       path: "/",
       expires: expiresAt,
     });
