@@ -592,6 +592,66 @@ async function startServer() {
     res.json({ user: toUser(userRow) });
   });
 
+  app.post("/api/setup/bootstrap-admin", async (req, res) => {
+    const token = String(process.env.BOOTSTRAP_ADMIN_TOKEN || "");
+    const provided = String(req.headers["x-bootstrap-token"] || "");
+    if (!token || provided !== token) return res.status(404).json({ error: "not_found" });
+
+    let adminCount = 0;
+    try {
+      const existingAdmins = await pool.query("select count(*)::int as count from users where role = 'admin'");
+      adminCount = Number(existingAdmins.rows[0]?.count || 0);
+    } catch {
+      return res.status(503).json({ error: "db_unavailable" });
+    }
+    if (adminCount > 0) return res.status(409).json({ error: "admin_exists" });
+
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+    const name = String(req.body?.name || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    if (!email || !password) return res.status(400).json({ error: "invalid_input" });
+    if (password.length < 8) return res.status(400).json({ error: "password_too_short" });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    let userRow: any;
+    try {
+      const insert = await pool.query(
+        `insert into users (email, password_hash, name, phone, role, status)
+         values ($1, $2, $3, $4, 'admin', 'active')
+         returning *`,
+        [email, passwordHash, name, phone]
+      );
+      userRow = insert.rows[0];
+    } catch (e: any) {
+      if (String(e?.code || "") === "23505") return res.status(409).json({ error: "email_exists" });
+      return res.status(503).json({ error: "db_unavailable" });
+    }
+
+    const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+    let sessionId: string;
+    try {
+      const session = await pool.query(
+        "insert into sessions (user_id, expires_at) values ($1, $2) returning id",
+        [userRow.id, expiresAt.toISOString()]
+      );
+      sessionId = session.rows[0].id;
+    } catch {
+      return res.status(503).json({ error: "db_unavailable" });
+    }
+
+    res.cookie(SESSION_COOKIE, sessionId, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      expires: expiresAt,
+    });
+
+    res.json({ user: toUser(userRow) });
+  });
+
   app.post("/api/auth/signup", async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "");
