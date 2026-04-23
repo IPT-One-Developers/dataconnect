@@ -59,8 +59,14 @@ export default function Login() {
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 font-sans">
-      <div className="bg-slate-900 text-white px-6 py-12 sm:px-12 lg:px-16 flex">
-        <div className="w-full max-w-xl mx-auto flex flex-col justify-center">
+      <div
+        className="bg-slate-900 text-white px-6 py-12 sm:px-12 lg:px-16 flex relative bg-cover bg-center"
+        style={{
+          backgroundImage:
+            'linear-gradient(135deg, rgba(2, 6, 23, 0.58), rgba(15, 23, 42, 0.86)), url("https://images.unsplash.com/photo-1759210358926-4673cc44d35f?auto=format&fit=crop&w=1600&q=80")',
+        }}
+      >
+        <div className="w-full max-w-xl mx-auto flex flex-col justify-center relative z-10">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center font-bold text-white text-2xl shadow-md">
               M
@@ -71,43 +77,41 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="mt-10 space-y-4">
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">Secure portal access for clients and admins</h1>
-            <p className="text-sm sm:text-base text-slate-200 leading-relaxed">
-              Manage SIMs, bundles, top-ups, and transactions from a single dashboard. Orders flow to admin for approval and
-              fulfillment.
-            </p>
-          </div>
-
           <div className="mt-10 grid gap-3 text-sm text-slate-200">
             <div className="flex gap-3">
               <div className="w-2 h-2 rounded-full bg-indigo-400 mt-2" />
-              <div>
-                <div className="font-bold text-white">Client Dashboard</div>
-                <div className="text-slate-300">View active SIMs, transactions, and available packages.</div>
-              </div>
+              <div className="font-bold text-white">Databundles</div>
             </div>
             <div className="flex gap-3">
               <div className="w-2 h-2 rounded-full bg-indigo-400 mt-2" />
-              <div>
-                <div className="font-bold text-white">Admin Tools</div>
-                <div className="text-slate-300">Approve orders, manage packages, and control client access.</div>
-              </div>
+              <div className="font-bold text-white">LTE and 5G Services</div>
             </div>
             <div className="flex gap-3">
               <div className="w-2 h-2 rounded-full bg-indigo-400 mt-2" />
-              <div>
-                <div className="font-bold text-white">Notifications & Preferences</div>
-                <div className="text-slate-300">Configure reminders and low-balance alerts.</div>
-              </div>
+              <div className="font-bold text-white">Coverage Checks</div>
             </div>
           </div>
 
-          <div className="mt-10 text-xs text-slate-400">Use your email and password to sign in.</div>
+          <div className="mt-10 text-sm text-slate-300">Reseller access comming soon!</div>
+        </div>
+
+        <div className="absolute bottom-6 left-6 sm:left-12 lg:left-16 text-left text-xs text-slate-400 space-y-1 z-10">
+          <div>© {new Date().getFullYear()} DataConnect. All rights reserved.</div>
+          <div>
+            Developed by{" "}
+            <a
+              href="https://website365.co.za"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-300 hover:text-white underline underline-offset-2"
+            >
+              Website365
+            </a>
+          </div>
         </div>
       </div>
 
-      <div className="bg-slate-50 px-6 py-12 sm:px-12 lg:px-16 flex">
+      <div className="bg-slate-50 px-6 py-12 sm:px-12 lg:px-16 flex relative">
         <div className="w-full max-w-md mx-auto flex flex-col justify-center">
           <div className="glass-card py-8 px-4 sm:px-10 space-y-6">
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -220,6 +224,18 @@ export default function Login() {
             </div>
           </form>
         </div>
+        </div>
+
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-center text-xs text-slate-500">
+          Web App Developement by{" "}
+          <a
+            href="https://website365.co.za"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+          >
+            Website365
+          </a>
         </div>
       </div>
 
