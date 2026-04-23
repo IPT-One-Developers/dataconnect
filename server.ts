@@ -272,7 +272,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   const wrapHandler = (fn: any) => {
     if (typeof fn !== "function") return fn;
