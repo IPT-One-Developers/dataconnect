@@ -594,7 +594,7 @@ async function startServer() {
 
   app.post("/api/setup/bootstrap-admin", async (req, res) => {
     const token = String(process.env.BOOTSTRAP_ADMIN_TOKEN || "");
-    const provided = String(req.headers["x-bootstrap-token"] || "");
+    const provided = String(req.headers["x-bootstrap-token"] || req.query?.token || req.body?.token || "");
     if (!token || provided !== token) return res.status(404).json({ error: "not_found" });
 
     let adminCount = 0;
