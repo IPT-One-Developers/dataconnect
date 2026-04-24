@@ -72,7 +72,7 @@ export default function Login() {
               M
             </div>
             <div>
-              <div className="text-2xl font-black tracking-tight">DataConnect</div>
+              <div className="text-2xl font-black tracking-tight">IPT-NeT</div>
               <div className="text-xs font-bold uppercase tracking-widest text-slate-300">Mobile Data Manager</div>
             </div>
           </div>
@@ -96,7 +96,7 @@ export default function Login() {
         </div>
 
         <div className="absolute bottom-6 left-6 sm:left-12 lg:left-16 text-left text-xs text-slate-400 space-y-1 z-10">
-          <div>© {new Date().getFullYear()} DataConnect. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} IPT-NeT. All rights reserved.</div>
           <div>
             Developed by{" "}
             <a

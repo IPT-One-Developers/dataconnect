@@ -214,7 +214,7 @@ export default function ClientSims() {
           </div>
         </div>
         <div className="text-xs text-slate-500 whitespace-pre-line">
-          Only MTN SIM cards are supported. Please ensure the phone number is correct so DataConnect can allocate your data bundles. If data bundles are allocated to the wrong number DataConnect can not be held responsible and is irreversable.
+          Only MTN SIM cards are supported. Please ensure the phone number is correct so IPT-NeT can allocate your data bundles. If data bundles are allocated to the wrong number IPT-NeT can not be held responsible and is irreversable.
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input

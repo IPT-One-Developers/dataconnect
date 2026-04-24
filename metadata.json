@@ -1,5 +1,5 @@
 {
-  "name": "DataConnect Mobile Data Manager",
+  "name": "IPT-NeT",
   "description": "Mobile Data, SIM Card, and Data Package management platform with admin and client dashboards, payment integrations, and Google Sheets syncing.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": []

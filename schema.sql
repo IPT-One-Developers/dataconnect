@@ -260,13 +260,23 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 
 CREATE TABLE IF NOT EXISTS company_settings (
   id text PRIMARY KEY,
-  company_name text NOT NULL DEFAULT 'DataConnect',
+  company_name text NOT NULL DEFAULT 'IPT-NeT',
   support_email text NOT NULL DEFAULT '',
   support_phone text NOT NULL DEFAULT '',
   banking_details text NOT NULL DEFAULT '',
   logo_url text NOT NULL DEFAULT '',
   payment_processors jsonb NOT NULL DEFAULT '[]'::jsonb,
   payment_processor_settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+  smtp_enabled boolean NOT NULL DEFAULT false,
+  smtp_host text NOT NULL DEFAULT '',
+  smtp_port integer NOT NULL DEFAULT 587,
+  smtp_secure boolean NOT NULL DEFAULT false,
+  smtp_user text NOT NULL DEFAULT '',
+  smtp_pass text NOT NULL DEFAULT '',
+  smtp_pass_enc bytea,
+  smtp_from_email text NOT NULL DEFAULT '',
+  smtp_from_name text NOT NULL DEFAULT '',
+  notification_emails jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 

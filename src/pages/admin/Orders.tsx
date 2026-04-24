@@ -16,6 +16,7 @@ export default function AdminOrders() {
   const [status, setStatus] = useState<string>("pending");
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<"lte" | "sim" | "coverage" | null>(null);
   const [activeItem, setActiveItem] = useState<any>(null);
@@ -23,6 +24,12 @@ export default function AdminOrders() {
   const [ltePackages, setLtePackages] = useState<any[]>([]);
   const [suggestedPackageIds, setSuggestedPackageIds] = useState<string[]>([]);
   const [coverageStatus, setCoverageStatus] = useState<"open" | "responded" | "closed">("responded");
+  const [isTopupViewOpen, setIsTopupViewOpen] = useState(false);
+  const [topupViewItem, setTopupViewItem] = useState<any>(null);
+  const [isTopupConfirmOpen, setIsTopupConfirmOpen] = useState(false);
+  const [topupConfirmLoading, setTopupConfirmLoading] = useState(false);
+  const [topupConfirmAction, setTopupConfirmAction] = useState<"fulfill" | "reject" | null>(null);
+  const [topupConfirmOrder, setTopupConfirmOrder] = useState<any>(null);
 
   const loadOrders = async () => {
     try {
@@ -74,9 +81,8 @@ export default function AdminOrders() {
   const handleFulfillOrder = async (order: any) => {
     try {
       if (view === "topups") {
-        if (!confirm(`Confirm that you have received payment referenced as ${order.reference} and wish to fulfill this Top-Up?`)) return;
         await api(`/api/admin/orders/${order.id}/fulfill`, { method: "POST", body: JSON.stringify({}) });
-        alert("Top-Up successfully processed!");
+        setNotice({ type: "success", message: "Top-Up successfully processed." });
         loadOrders();
         return;
       }
@@ -87,7 +93,7 @@ export default function AdminOrders() {
       loadOrders();
     } catch (e) {
       console.error(e);
-      alert("Failed to process request.");
+      setNotice({ type: "error", message: "Failed to process request." });
       loadOrders();
     }
   };
@@ -95,8 +101,8 @@ export default function AdminOrders() {
   const handleRejectOrder = async (orderId: string) => {
     try {
       if (view === "topups") {
-        if (!confirm("Are you sure you want to reject this order?")) return;
         await api(`/api/admin/orders/${orderId}/reject`, { method: "POST", body: JSON.stringify({}) });
+        setNotice({ type: "success", message: "Top-Up rejected." });
         loadOrders();
         return;
       }
@@ -117,6 +123,39 @@ export default function AdminOrders() {
       loadOrders();
     } catch (e) {
       console.error(e);
+      setNotice({ type: "error", message: "Failed to process request." });
+    }
+  };
+
+  const openTopupConfirm = (action: "fulfill" | "reject", order: any) => {
+    setNotice(null);
+    setTopupConfirmAction(action);
+    setTopupConfirmOrder(order);
+    setIsTopupConfirmOpen(true);
+  };
+
+  const closeTopupConfirm = () => {
+    if (topupConfirmLoading) return;
+    setIsTopupConfirmOpen(false);
+    setTopupConfirmAction(null);
+    setTopupConfirmOrder(null);
+  };
+
+  const runTopupConfirm = async () => {
+    if (topupConfirmLoading) return;
+    if (!topupConfirmAction || !topupConfirmOrder) return;
+    setTopupConfirmLoading(true);
+    try {
+      if (topupConfirmAction === "fulfill") {
+        await handleFulfillOrder(topupConfirmOrder);
+      } else {
+        await handleRejectOrder(String(topupConfirmOrder.id));
+      }
+      setIsTopupConfirmOpen(false);
+      setTopupConfirmAction(null);
+      setTopupConfirmOrder(null);
+    } finally {
+      setTopupConfirmLoading(false);
     }
   };
 
@@ -183,10 +222,26 @@ export default function AdminOrders() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
+      {notice && (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+            notice.type === "success"
+              ? "bg-emerald-50 border-emerald-100 text-emerald-800"
+              : "bg-rose-50 border-rose-100 text-rose-800"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>{notice.message}</div>
+            <button type="button" className="text-xs font-bold uppercase tracking-wide opacity-70" onClick={() => setNotice(null)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       <div>
         <h2 className="text-lg font-bold text-slate-800">
           {view === "topups"
-            ? "Top-Up Requests"
+            ? "Orders"
             : view === "lte"
               ? "LTE / 5G Orders"
               : view === "sim"
@@ -275,7 +330,7 @@ export default function AdminOrders() {
             {orders.length === 0 ? (
                <TableRow>
                  <TableCell colSpan={6} className="text-center py-10 text-slate-500">
-                    No pending orders at this time.
+                    No orders for the selected status.
                  </TableCell>
                </TableRow>
             ) : (
@@ -329,21 +384,36 @@ export default function AdminOrders() {
                       </Button>
                     ) : view === "topups" ? (
                       <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRejectOrder(o.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleFulfillOrder(o)}
-                          className="bg-emerald-600 hover:bg-emerald-700"
-                        >
-                          Fulfill Top-Up
-                        </Button>
+                        {String(o.status) === "pending" ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openTopupConfirm("reject", o)}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => openTopupConfirm("fulfill", o)}
+                              className="bg-emerald-600 hover:bg-emerald-700"
+                            >
+                              Fulfill Top-Up
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setTopupViewItem(o);
+                              setIsTopupViewOpen(true);
+                            }}
+                          >
+                            View
+                          </Button>
+                        )}
                       </>
                     ) : (
                       <>
@@ -382,9 +452,71 @@ export default function AdminOrders() {
         </Table>
       </div>
 
+      {isTopupConfirmOpen && (
+        <Dialog
+          open={isTopupConfirmOpen}
+          onOpenChange={(open) => {
+            if (!open) closeTopupConfirm();
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <span
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${
+                    topupConfirmAction === "reject" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
+                  }`}
+                >
+                  {topupConfirmAction === "reject" ? "!" : "✓"}
+                </span>
+                {topupConfirmAction === "reject" ? "Reject Top-Up" : "Confirm Top-Up"}
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 pt-2 text-sm text-slate-600">
+              <div>
+                {topupConfirmAction === "reject"
+                  ? "This will mark the Top-Up as rejected."
+                  : "Only confirm once payment has been received. This will complete the Top-Up."}
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Reference</div>
+                  <div className="font-mono text-slate-900">{String(topupConfirmOrder?.reference || "-")}</div>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Amount</div>
+                  <div className="font-bold text-slate-900">R {Number(topupConfirmOrder?.amount || 0).toFixed(2)}</div>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Client</div>
+                  <div className="max-w-[220px] truncate font-medium text-slate-900">
+                    {String(topupConfirmOrder?.userEmail || "-")}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" disabled={topupConfirmLoading} onClick={closeTopupConfirm}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={topupConfirmLoading}
+                onClick={runTopupConfirm}
+                className={topupConfirmAction === "reject" ? "bg-rose-600 hover:bg-rose-700" : "bg-emerald-600 hover:bg-emerald-700"}
+              >
+                {topupConfirmLoading ? "Processing..." : topupConfirmAction === "reject" ? "Reject" : "Confirm"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {isDialogOpen && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent>
+          <DialogContent className={dialogType === "coverage" ? "sm:max-w-3xl" : ""}>
             <DialogHeader>
               <DialogTitle>
                 {dialogType === "coverage"
@@ -416,7 +548,13 @@ export default function AdminOrders() {
                 </div>
                 <div className="grid gap-2">
                   <Label>Admin Comment</Label>
-                  <Input value={adminComment} onChange={(e) => setAdminComment(e.target.value)} />
+                  <textarea
+                    rows={4}
+                    value={adminComment}
+                    onChange={(e) => setAdminComment(e.target.value)}
+                    className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Type your reply..."
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label>Suggested Packages</Label>
@@ -471,6 +609,71 @@ export default function AdminOrders() {
                 Cancel
               </Button>
               <Button onClick={saveDialog}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {isTopupViewOpen && (
+        <Dialog
+          open={isTopupViewOpen}
+          onOpenChange={(open) => {
+            setIsTopupViewOpen(open);
+            if (!open) setTopupViewItem(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Top-Up Order</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 pt-2 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Status</div>
+                <Badge
+                  className={
+                    String(topupViewItem?.status) === "completed"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : String(topupViewItem?.status) === "rejected"
+                        ? "bg-rose-100 text-rose-700"
+                        : "bg-amber-100 text-amber-700"
+                  }
+                >
+                  {String(topupViewItem?.status || "-")}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Client</div>
+                <div className="font-medium text-slate-900 truncate max-w-[260px]">{String(topupViewItem?.userEmail || "-")}</div>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Package</div>
+                <div className="font-medium text-slate-900 truncate max-w-[260px]">{String(topupViewItem?.packageName || "-")}</div>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Reference (SIM No.)</div>
+                <div className="font-mono text-slate-900">{String(topupViewItem?.reference || "-")}</div>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Amount</div>
+                <div className="font-bold text-slate-900">R {Number(topupViewItem?.amount || 0).toFixed(2)}</div>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Payment Method</div>
+                <div className="text-slate-900">{String(topupViewItem?.paymentMethod || "-")}</div>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-slate-600">Date</div>
+                <div className="text-slate-900">
+                  {topupViewItem?.createdAt ? format(new Date(topupViewItem.createdAt), "PP p") : "-"}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setIsTopupViewOpen(false)}>
+                Close
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

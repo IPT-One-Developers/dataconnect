@@ -30,7 +30,7 @@ export default function ClientLteOrders() {
   const [confirmPaid, setConfirmPaid] = useState(false);
   const [paymentRef, setPaymentRef] = useState<string>("");
   const [payOrder, setPayOrder] = useState<any>(null);
-  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [viewMode, setViewMode] = useState<"card" | "list">("list");
   const [search, setSearch] = useState("");
   const [filterNetwork, setFilterNetwork] = useState<"all" | "MTN" | "Vodacom" | "Telkom" | "other">("all");
   const [filterCapType, setFilterCapType] = useState<"all" | "capped" | "uncapped">("all");
@@ -189,41 +189,39 @@ export default function ClientLteOrders() {
         ];
         const sections = filterNetwork === "all" ? allSections : allSections.filter((s) => s.key === filterNetwork);
 
-        const borders = ["border-t-indigo-500", "border-t-purple-500", "border-t-slate-800", "border-t-emerald-500"];
-
         return (
-          <div className="space-y-6">
-            <div className="glass-card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="glass-card overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-2">
-                <Button variant={viewMode === "card" ? "default" : "outline"} size="sm" onClick={() => setViewMode("card")}>
-                  Card View
-                </Button>
                 <Button variant={viewMode === "list" ? "default" : "outline"} size="sm" onClick={() => setViewMode("list")}>
                   List View
+                </Button>
+                <Button variant={viewMode === "card" ? "default" : "outline"} size="sm" onClick={() => setViewMode("card")}>
+                  Card View
                 </Button>
               </div>
 
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end md:gap-3">
                 <Input
-                  placeholder="Search packages..."
+                  placeholder="Search by name, description, or FUP..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full md:w-[320px]"
                 />
                 <Select value={filterNetwork} onValueChange={(v) => setFilterNetwork(v as any)}>
-                  <SelectTrigger className="w-full md:w-[180px]">
+                  <SelectTrigger className="w-full md:w-[160px]">
                     <SelectValue placeholder="Network" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Networks</SelectItem>
                     <SelectItem value="MTN">MTN</SelectItem>
-                    <SelectItem value="Telkom">Telkom</SelectItem>
                     <SelectItem value="Vodacom">Vodacom</SelectItem>
+                    <SelectItem value="Telkom">Telkom</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={filterCapType} onValueChange={(v) => setFilterCapType(v as any)}>
-                  <SelectTrigger className="w-full md:w-[180px]">
+                  <SelectTrigger className="w-full md:w-[170px]">
                     <SelectValue placeholder="Cap Type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -236,135 +234,148 @@ export default function ClientLteOrders() {
             </div>
 
             {visiblePackages.length === 0 ? (
-              <div className="text-sm text-slate-500">No LTE / 5G packages match your search/filter.</div>
+              <div className="py-10 text-center text-slate-500 text-sm">No LTE / 5G packages match your search/filter.</div>
             ) : (
-              <div className="space-y-8">
+              <div className="divide-y divide-slate-100">
                 {sections.map((section) => (
-                  <div key={section.key} className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
-                      <Badge variant="outline">{section.items.length}</Badge>
+                  <div key={section.key} className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
+                        <Badge variant="outline">{section.items.length}</Badge>
+                      </div>
                     </div>
 
-                    {section.items.length === 0 ? (
-                      <div className="text-sm text-slate-500">No packages in this section.</div>
-                    ) : viewMode === "card" ? (
-                      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                        {section.items.map((pkg, i) => {
-                          const borderClass = borders[i % borders.length];
-                          return (
-                            <div key={pkg.id} className={`glass-card p-5 text-center border-t-4 flex flex-col ${borderClass}`}>
-                              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">{pkg.name}</p>
-                              <h3 className="text-xl font-black my-2">{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</h3>
-                              <span className="text-sm font-normal text-slate-500">{pkg.durationDays} Days</span>
-                              {pkg.speedMbps === null || pkg.speedMbps === undefined ? null : (
-                                <p className="text-sm text-slate-600 mt-1">{`${pkg.speedMbps} Mbps`}</p>
-                              )}
-                              <p className="text-lg font-bold text-slate-800 mb-2 mt-2">R {Number(pkg.price).toFixed(2)}</p>
-                              {String(pkg.description || "").trim() ? (
-                                <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
-                              ) : null}
-                              {String(pkg.fup || "").trim() ? (
-                                <div className="text-[10px] text-slate-500 mb-4 whitespace-pre-wrap">
-                                  <div className="font-semibold text-slate-600">FUP</div>
-                                  <div>{String(pkg.fup || "").trim()}</div>
-                                </div>
-                              ) : (
-                                <div className="mb-4" />
-                              )}
-                              <button
-                                className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
-                                onClick={() => {
-                                  const fullName = String(user?.name || "").trim();
-                                  const parts = fullName ? fullName.split(/\s+/) : [];
-                                  const firstName = parts[0] || "";
-                                  const lastName = parts.slice(1).join(" ");
-                                  setSelectedPkg(pkg);
-                                  setPaymentRef(createPaymentRef());
-                                  setPaymentMethod("");
-                                  setConfirmPaid(false);
-                                  setForm({
-                                    firstName,
-                                    lastName,
-                                    email: String(user?.email || ""),
-                                    mobile: String(user?.phone || ""),
-                                    whatsapp: String(user?.phone || ""),
-                                    line1: "",
-                                    line2: "",
-                                    suburb: "",
-                                    city: "",
-                                    province: "",
-                                    postalCode: "",
-                                    notes: "",
-                                  });
-                                }}
-                              >
-                                Order LTE / 5G
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="glass-card overflow-hidden">
+                    {viewMode === "list" ? (
+                      <div className="overflow-hidden rounded-lg border border-slate-100">
                         <Table>
                           <TableHeader className="bg-slate-50/50">
                             <TableRow>
-                              <TableHead>Package</TableHead>
+                              <TableHead>Name</TableHead>
+                              <TableHead>Description</TableHead>
                               <TableHead>Cap</TableHead>
                               <TableHead>Speed</TableHead>
-                              <TableHead>Price</TableHead>
+                              <TableHead>Price (R)</TableHead>
+                              <TableHead>Duration</TableHead>
                               <TableHead className="text-right">Action</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {section.items.map((pkg) => (
-                              <TableRow key={pkg.id}>
-                                <TableCell className="font-semibold text-slate-900">{pkg.name}</TableCell>
-                                <TableCell className="text-slate-800">
-                                  <div className="font-semibold">{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</div>
-                                  <span className="text-xs font-normal text-slate-500">{pkg.durationDays} Days</span>
-                                </TableCell>
-                                <TableCell className="text-slate-700">
-                                  {pkg.speedMbps === null || pkg.speedMbps === undefined ? "-" : `${pkg.speedMbps} Mbps`}
-                                </TableCell>
-                                <TableCell className="text-slate-900 font-semibold">R {Number(pkg.price).toFixed(2)}</TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const fullName = String(user?.name || "").trim();
-                                      const parts = fullName ? fullName.split(/\s+/) : [];
-                                      const firstName = parts[0] || "";
-                                      const lastName = parts.slice(1).join(" ");
-                                      setSelectedPkg(pkg);
-                                      setPaymentRef(createPaymentRef());
-                                      setPaymentMethod("");
-                                      setConfirmPaid(false);
-                                      setForm({
-                                        firstName,
-                                        lastName,
-                                        email: String(user?.email || ""),
-                                        mobile: String(user?.phone || ""),
-                                        whatsapp: String(user?.phone || ""),
-                                        line1: "",
-                                        line2: "",
-                                        suburb: "",
-                                        city: "",
-                                        province: "",
-                                        postalCode: "",
-                                        notes: "",
-                                      });
-                                    }}
-                                  >
-                                    Order
-                                  </Button>
+                            {section.items.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={7} className="text-center py-8 text-slate-500 text-sm">
+                                  No packages in this section.
                                 </TableCell>
                               </TableRow>
-                            ))}
+                            ) : (
+                              section.items.map((pkg) => (
+                                <TableRow key={pkg.id}>
+                                  <TableCell className="font-medium">{pkg.name}</TableCell>
+                                  <TableCell className="text-xs text-slate-600 max-w-[340px] truncate">{pkg.description || "-"}</TableCell>
+                                  <TableCell>{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</TableCell>
+                                  <TableCell>{pkg.speedMbps === null || pkg.speedMbps === undefined ? "-" : `${pkg.speedMbps} Mbps`}</TableCell>
+                                  <TableCell>R{Number(pkg.price).toFixed(2)}</TableCell>
+                                  <TableCell>{Number(pkg.durationDays)} Days</TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        const fullName = String(user?.name || "").trim();
+                                        const parts = fullName ? fullName.split(/\s+/) : [];
+                                        const firstName = parts[0] || "";
+                                        const lastName = parts.slice(1).join(" ");
+                                        setSelectedPkg(pkg);
+                                        setPaymentRef(createPaymentRef());
+                                        setPaymentMethod("");
+                                        setConfirmPaid(false);
+                                        setForm({
+                                          firstName,
+                                          lastName,
+                                          email: String(user?.email || ""),
+                                          mobile: String(user?.phone || ""),
+                                          whatsapp: String(user?.phone || ""),
+                                          line1: "",
+                                          line2: "",
+                                          suburb: "",
+                                          city: "",
+                                          province: "",
+                                          postalCode: "",
+                                          notes: "",
+                                        });
+                                      }}
+                                    >
+                                      Order
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
                           </TableBody>
                         </Table>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {section.items.length === 0 ? (
+                          <div className="text-sm text-slate-500">No packages in this section.</div>
+                        ) : (
+                          section.items.map((pkg) => (
+                            <div key={pkg.id} className="rounded-xl border border-slate-100 bg-white p-4 flex flex-col gap-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-bold text-slate-900 truncate">{pkg.name}</div>
+                                  <div className="text-xs text-slate-500">
+                                    <div>{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</div>
+                                    <span>{Number(pkg.durationDays)} Days</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {pkg.description ? <div className="text-xs text-slate-600 max-h-12 overflow-hidden">{pkg.description}</div> : null}
+
+                              <div className="flex items-center justify-between pt-1">
+                                <div className="text-sm font-black text-slate-900">R{Number(pkg.price).toFixed(2)}</div>
+                                <div className="text-xs text-slate-500">
+                                  {pkg.speedMbps === null || pkg.speedMbps === undefined ? "-" : `${pkg.speedMbps} Mbps`}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex-1"
+                                  onClick={() => {
+                                    const fullName = String(user?.name || "").trim();
+                                    const parts = fullName ? fullName.split(/\s+/) : [];
+                                    const firstName = parts[0] || "";
+                                    const lastName = parts.slice(1).join(" ");
+                                    setSelectedPkg(pkg);
+                                    setPaymentRef(createPaymentRef());
+                                    setPaymentMethod("");
+                                    setConfirmPaid(false);
+                                    setForm({
+                                      firstName,
+                                      lastName,
+                                      email: String(user?.email || ""),
+                                      mobile: String(user?.phone || ""),
+                                      whatsapp: String(user?.phone || ""),
+                                      line1: "",
+                                      line2: "",
+                                      suburb: "",
+                                      city: "",
+                                      province: "",
+                                      postalCode: "",
+                                      notes: "",
+                                    });
+                                  }}
+                                >
+                                  Order LTE / 5G
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     )}
                   </div>

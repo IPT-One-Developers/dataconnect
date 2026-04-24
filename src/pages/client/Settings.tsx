@@ -46,7 +46,7 @@ export default function ClientSettings() {
     }
     
     if (Notification.permission === 'granted') {
-       new Notification("DataConnect", { body: "Push notifications are already active!" });
+       new Notification("IPT-NeT", { body: "Push notifications are already active!" });
        return;
     }
 
@@ -55,7 +55,7 @@ export default function ClientSettings() {
       setBrowserPermission(permission);
       if (permission === "granted") {
         setPreferences({...preferences, pushEnabled: true});
-        new Notification("DataConnect", { body: "Push notifications are now active!" });
+        new Notification("IPT-NeT", { body: "Push notifications are now active!" });
       }
     }
   };

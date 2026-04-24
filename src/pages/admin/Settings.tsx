@@ -10,7 +10,7 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState({
-    companyName: 'DataConnect',
+    companyName: 'IPT-NeT',
     supportEmail: '',
     supportPhone: '',
     bankingDetails: '',
@@ -21,6 +21,16 @@ export default function AdminSettings() {
       yoco: { publicKey: "", secretKey: "", sandbox: false },
       payat: { merchantId: "", apiKey: "", sandbox: false },
     } as any,
+    smtpEnabled: false,
+    smtpHost: "",
+    smtpPort: "587",
+    smtpSecure: false,
+    smtpUser: "",
+    smtpPass: "",
+    smtpPassSet: false,
+    smtpFromEmail: "",
+    smtpFromName: "",
+    notificationEmails: "info@iptone.co.za, admin@iptone.co.za",
   });
   const paymentProcessorOptions = ["PayFast", "Yoco", "Pay@"] as const;
 
@@ -39,7 +49,7 @@ export default function AdminSettings() {
           : {};
 
         setSettings({
-          companyName: res.settings.company_name ?? "DataConnect",
+          companyName: res.settings.company_name ?? "IPT-NeT",
           supportEmail: res.settings.support_email ?? "",
           supportPhone: res.settings.support_phone ?? "",
           bankingDetails: res.settings.banking_details ?? "",
@@ -63,6 +73,23 @@ export default function AdminSettings() {
               sandbox: Boolean(existingPps?.payat?.sandbox ?? false),
             },
           },
+          smtpEnabled: Boolean(res.settings.smtp_enabled ?? false),
+          smtpHost: String(res.settings.smtp_host ?? ""),
+          smtpPort: String(res.settings.smtp_port ?? "587"),
+          smtpSecure: Boolean(res.settings.smtp_secure ?? false),
+          smtpUser: String(res.settings.smtp_user ?? ""),
+          smtpPass: "",
+          smtpPassSet: Boolean(res.settings.smtp_pass_set ?? false),
+          smtpFromEmail: String(res.settings.smtp_from_email ?? ""),
+          smtpFromName: String(res.settings.smtp_from_name ?? ""),
+          notificationEmails: (() => {
+            const fromDb = Array.isArray(res.settings.notification_emails) ? res.settings.notification_emails.map((x: any) => String(x)) : [];
+            const base = ["info@iptone.co.za", "admin@iptone.co.za", ...fromDb]
+              .map((s) => s.trim().toLowerCase())
+              .filter(Boolean);
+            const unique = Array.from(new Set(base));
+            return unique.join(", ");
+          })(),
         });
       }
     } catch (e: any) {
@@ -110,9 +137,23 @@ export default function AdminSettings() {
           logoUrl: settings.logoUrl,
           paymentProcessors: settings.paymentProcessors,
           paymentProcessorSettings: settings.paymentProcessorSettings,
+          smtpEnabled: settings.smtpEnabled,
+          smtpHost: settings.smtpHost,
+          smtpPort: Number(settings.smtpPort),
+          smtpSecure: settings.smtpSecure,
+          smtpUser: settings.smtpUser,
+          smtpPass: settings.smtpPass,
+          smtpFromEmail: settings.smtpFromEmail,
+          smtpFromName: settings.smtpFromName,
+          notificationEmails: settings.notificationEmails,
         }),
       });
       alert("Company Settings updated successfully.");
+      setSettings((prev) => ({
+        ...prev,
+        smtpPass: "",
+        smtpPassSet: prev.smtpPass.trim().length > 0 ? true : prev.smtpPassSet,
+      }));
     } catch (e: any) {
       console.error(e);
       const code = String(e?.code || e?.message || "");
@@ -159,7 +200,7 @@ export default function AdminSettings() {
                     id="companyName" 
                     value={settings.companyName}
                     onChange={e => setSettings({...settings, companyName: e.target.value})}
-                    placeholder="e.g. DataConnect Mobile"
+                    placeholder="e.g. IPT-NeT"
                   />
                   <p className="text-[11px] text-slate-500">The primary brand name displayed across the portal.</p>
                </div>
@@ -208,7 +249,7 @@ export default function AdminSettings() {
                  value={settings.bankingDetails}
                  onChange={e => setSettings({...settings, bankingDetails: e.target.value})}
                  className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                 placeholder="Bank: Standard Bank&#10;Account Name: DataConnect PTY LTD&#10;Branch Code: 000000&#10;Account: 123456789"
+                 placeholder="Bank: Standard Bank&#10;Account Name: IPT-NeT&#10;Branch Code: 000000&#10;Account: 123456789"
                />
                <p className="text-[11px] text-slate-500">Clients will see these details when initiating a TopUp via EFT method.</p>
             </div>
@@ -420,6 +461,94 @@ export default function AdminSettings() {
                 </label>
               </div>
             )}
+
+            <hr className="border-slate-100 my-6" />
+
+            <div className="space-y-4 max-w-3xl">
+              <div className="text-sm font-bold text-slate-800">SMTP Settings</div>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.smtpEnabled)}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, smtpEnabled: e.target.checked }))}
+                />
+                Enable SMTP email sending
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700">SMTP Host</Label>
+                  <Input
+                    value={settings.smtpHost}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, smtpHost: e.target.value }))}
+                    placeholder="smtp.example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700">SMTP Port</Label>
+                  <Input
+                    type="number"
+                    value={settings.smtpPort}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, smtpPort: e.target.value }))}
+                    placeholder="587"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700">SMTP Username</Label>
+                  <Input value={settings.smtpUser} onChange={(e) => setSettings((prev) => ({ ...prev, smtpUser: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700">SMTP Password</Label>
+                  <Input
+                    type="password"
+                    value={settings.smtpPass}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, smtpPass: e.target.value }))}
+                    placeholder={settings.smtpPassSet ? "Saved (leave blank to keep)" : ""}
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.smtpSecure)}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, smtpSecure: e.target.checked }))}
+                />
+                Use secure connection (TLS/SSL)
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700">From Email (optional)</Label>
+                  <Input
+                    type="email"
+                    value={settings.smtpFromEmail}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, smtpFromEmail: e.target.value }))}
+                    placeholder="no-reply@iptone.co.za"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700">From Name (optional)</Label>
+                  <Input
+                    value={settings.smtpFromName}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, smtpFromName: e.target.value }))}
+                    placeholder="IPT One"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-semibold text-slate-700">Notification Recipients</Label>
+                <textarea
+                  rows={3}
+                  value={settings.notificationEmails}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, notificationEmails: e.target.value }))}
+                  className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="info@iptone.co.za, admin@iptone.co.za"
+                />
+                <p className="text-[11px] text-slate-500">Comma-separated emails that should receive all notifications (new signups and new orders).</p>
+              </div>
+            </div>
 
             <div className="flex justify-end pt-4">
                <Button type="submit" size="lg" disabled={saving} className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-8">

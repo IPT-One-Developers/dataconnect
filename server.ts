@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
 import express from "express";
 import { readFile } from "fs/promises";
+import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
 import { Pool } from "pg";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -76,7 +78,8 @@ const SESSION_COOKIE = "dc_session";
 const SESSION_TTL_DAYS = 30;
 
 const ZOOMCONNECT_URL_TOKEN = process.env.ZOOMCONNECT_URL_TOKEN || "";
-const ZOOMCONNECT_SMS_CAMPAIGN = process.env.ZOOMCONNECT_SMS_CAMPAIGN || "DataConnect";
+const ZOOMCONNECT_SMS_CAMPAIGN = process.env.ZOOMCONNECT_SMS_CAMPAIGN || "IPT-NeT";
+const SETTINGS_ENCRYPTION_KEY = String(process.env.SETTINGS_ENCRYPTION_KEY || "").trim();
 
 let extendedSchemaEnsured: Promise<void> | null = null;
 
@@ -113,6 +116,157 @@ async function sendZoomconnectSms(recipientNumber: string, message: string) {
   if (!resp.ok) {
     throw new Error("sms_send_failed");
   }
+}
+
+type EmailConfig = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromEmail: string;
+  fromName: string;
+  notificationEmails: string[];
+  companyName: string;
+  supportEmail?: string;
+  supportPhone?: string;
+};
+
+let emailConfigCache: { value: EmailConfig | null; loadedAt: number } = { value: null, loadedAt: 0 };
+let transporterCache: { key: string; transporter: Transporter } | null = null;
+
+function isValidSmtpConfig(input: { host: string; port: number; user: string; pass: string }): boolean {
+  if (!input.host || /\s/.test(input.host)) return false;
+  if (!Number.isInteger(input.port) || input.port <= 0 || input.port > 65535) return false;
+  if (!input.user) return false;
+  if (!input.pass) return false;
+  return true;
+}
+
+function normalizeEmailList(emails: any[]): string[] {
+  const out: string[] = [];
+  for (const e of emails) {
+    const s = String(e || "")
+      .trim()
+      .toLowerCase();
+    if (!s) continue;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/u.test(s)) continue;
+    out.push(s);
+  }
+  return Array.from(new Set(out));
+}
+
+function logEmailError(event: string, err: any, meta?: Record<string, any>) {
+  const code = err?.code ? String(err.code) : undefined;
+  const message = err?.message ? String(err.message) : String(err);
+  const responseCode = typeof err?.responseCode === "number" ? err.responseCode : undefined;
+  const response = err?.response ? String(err.response) : undefined;
+  console.error("email_send_failed", { event, ...(meta || {}), code, message, responseCode, response });
+}
+
+async function loadEmailConfig(): Promise<EmailConfig | null> {
+  const now = Date.now();
+  if (emailConfigCache.value && now - emailConfigCache.loadedAt < 15_000) return emailConfigCache.value;
+  try {
+    const { rows } = SETTINGS_ENCRYPTION_KEY
+      ? await pool.query(
+          "select *, pgp_sym_decrypt(smtp_pass_enc, $1)::text as smtp_pass_decrypted from company_settings where id = 'global' limit 1",
+          [SETTINGS_ENCRYPTION_KEY]
+        )
+      : await pool.query("select * from company_settings where id = 'global' limit 1");
+    const r: any = rows[0] || null;
+    if (!r) {
+      emailConfigCache = { value: null, loadedAt: now };
+      return null;
+    }
+
+    const notificationEmails = normalizeEmailList([
+      "info@iptone.co.za",
+      "admin@iptone.co.za",
+      ...(Array.isArray(r.notification_emails) ? r.notification_emails : []),
+    ]);
+
+    const host = String(r.smtp_host || "").trim();
+    const user = String(r.smtp_user || "").trim();
+    const pass = String(r.smtp_pass_decrypted || r.smtp_pass || "");
+    const portRaw = Number(r.smtp_port);
+    const port = Number.isFinite(portRaw) && portRaw > 0 && portRaw <= 65535 ? Math.floor(portRaw) : 587;
+    const enabled = Boolean(r.smtp_enabled) && isValidSmtpConfig({ host, port, user, pass });
+    const secure = Boolean(r.smtp_secure);
+    const fromEmail = String(r.smtp_from_email || "").trim() || user;
+    const fromName = String(r.smtp_from_name || "").trim() || String(r.company_name || "IPT-NeT");
+
+    const cfg: EmailConfig = {
+      enabled,
+      host,
+      port,
+      secure,
+      user,
+      pass,
+      fromEmail,
+      fromName,
+      notificationEmails,
+      companyName: String(r.company_name || "IPT-NeT"),
+      supportEmail: String(r.support_email || ""),
+      supportPhone: String(r.support_phone || ""),
+    };
+    emailConfigCache = { value: cfg, loadedAt: now };
+    return cfg;
+  } catch {
+    emailConfigCache = { value: null, loadedAt: now };
+    return null;
+  }
+}
+
+async function getEmailTransporter(cfg: EmailConfig): Promise<Transporter> {
+  const key = JSON.stringify({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    user: cfg.user,
+    pass: cfg.pass,
+  });
+  if (transporterCache && transporterCache.key === key) return transporterCache.transporter;
+
+  const transporter: Transporter = nodemailer.createTransport({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    auth: { user: cfg.user, pass: cfg.pass },
+  });
+  transporterCache = { key, transporter };
+  return transporter;
+}
+
+async function sendEmail(args: { to: string[]; subject: string; text: string }) {
+  const cfg = await loadEmailConfig();
+  if (!cfg || !cfg.enabled) return;
+  const to = normalizeEmailList(args.to);
+  if (to.length === 0) return;
+  const transporter = await getEmailTransporter(cfg);
+  const subject = String(args.subject || "").trim();
+  const text = String(args.text || "").trim();
+  try {
+    await transporter.sendMail({
+      from: { name: cfg.fromName, address: cfg.fromEmail },
+      to,
+      subject,
+      text,
+    });
+  } catch (e) {
+    logEmailError("send_email", e, { to, subject });
+  }
+}
+
+async function sendAdminEmail(args: { subject: string; text: string }) {
+  const cfg = await loadEmailConfig();
+  if (!cfg || !cfg.enabled) return;
+  await sendEmail({ to: cfg.notificationEmails, subject: args.subject, text: args.text });
+}
+
+async function sendClientEmail(args: { email: string; subject: string; text: string }) {
+  await sendEmail({ to: [args.email], subject: args.subject, text: args.text });
 }
 
 function isFiniteNumber(x: any): x is number {
@@ -274,13 +428,23 @@ async function ensureExtendedSchema() {
     await pool.query(
       `create table if not exists company_settings (
          id text primary key,
-         company_name text not null default 'DataConnect',
+         company_name text not null default 'IPT-NeT',
          support_email text not null default '',
          support_phone text not null default '',
          banking_details text not null default '',
          logo_url text not null default '',
          payment_processors jsonb not null default '[]'::jsonb,
          payment_processor_settings jsonb not null default '{}'::jsonb,
+         smtp_enabled boolean not null default false,
+         smtp_host text not null default '',
+         smtp_port integer not null default 587,
+         smtp_secure boolean not null default false,
+         smtp_user text not null default '',
+         smtp_pass text not null default '',
+         smtp_pass_enc bytea,
+         smtp_from_email text not null default '',
+         smtp_from_name text not null default '',
+         notification_emails jsonb not null default '[]'::jsonb,
          updated_at timestamptz not null default now()
        );`
     ).catch(() => {});
@@ -290,7 +454,39 @@ async function ensureExtendedSchema() {
     await pool.query(
       `alter table company_settings add column if not exists payment_processor_settings jsonb not null default '{}'::jsonb;`
     ).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_enabled boolean not null default false;`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_host text not null default '';`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_port integer not null default 587;`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_secure boolean not null default false;`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_user text not null default '';`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_pass text not null default '';`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_pass_enc bytea;`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_from_email text not null default '';`).catch(() => {});
+    await pool.query(`alter table company_settings add column if not exists smtp_from_name text not null default '';`).catch(() => {});
+    await pool.query(
+      `alter table company_settings add column if not exists notification_emails jsonb not null default '[]'::jsonb;`
+    ).catch(() => {});
     await pool.query(`insert into company_settings (id) values ('global') on conflict (id) do nothing;`).catch(() => {});
+    await pool
+      .query(
+        `update company_settings
+         set notification_emails = '["info@iptone.co.za","admin@iptone.co.za"]'::jsonb
+         where id = 'global' and jsonb_typeof(notification_emails) = 'array' and jsonb_array_length(notification_emails) = 0`
+      )
+      .catch(() => {});
+    if (SETTINGS_ENCRYPTION_KEY) {
+      await pool
+        .query(
+          `update company_settings
+           set smtp_pass_enc = pgp_sym_encrypt(smtp_pass, $1),
+               smtp_pass = ''
+           where id = 'global'
+             and coalesce(smtp_pass, '') <> ''
+             and smtp_pass_enc is null`,
+          [SETTINGS_ENCRYPTION_KEY]
+        )
+        .catch(() => {});
+    }
 
     await pool.query(
       `do $$ begin
@@ -926,6 +1122,39 @@ async function startServer() {
       expires: expiresAt,
     });
 
+    void (async () => {
+      try {
+        const cfg = await loadEmailConfig();
+        const companyName = cfg?.companyName || "IPT-NeT";
+        const supportEmail = cfg?.supportEmail || "";
+        const supportPhone = cfg?.supportPhone || "";
+        const supportLine = [supportEmail ? `Email: ${supportEmail}` : "", supportPhone ? `Phone/WhatsApp: ${supportPhone}` : ""]
+          .filter(Boolean)
+          .join("\n");
+        const text = [
+          `Hi${name ? ` ${name}` : ""},`,
+          "",
+          `Welcome to ${companyName}. Your account has been created successfully.`,
+          "",
+          supportLine ? `Support:\n${supportLine}` : "",
+          "",
+          "Thank you,",
+          companyName,
+        ]
+          .filter((x) => x !== "")
+          .join("\n");
+        await sendClientEmail({ email, subject: `Welcome to ${companyName}`, text });
+        await sendAdminEmail({
+          subject: `New client signup: ${email}`,
+          text: [`New client signup`, "", `Email: ${email}`, name ? `Name: ${name}` : "", phone ? `Phone: ${phone}` : ""]
+            .filter(Boolean)
+            .join("\n"),
+        });
+      } catch (e) {
+        logEmailError("client_signup", e, { clientEmail: email });
+      }
+    })();
+
     res.json({ user: toUser(userRow) });
   });
 
@@ -977,8 +1206,34 @@ async function startServer() {
 
   app.get("/api/admin/company-settings", requireAdmin, async (_req, res) => {
     try {
-      const { rows } = await pool.query("select * from company_settings where id = 'global' limit 1");
-      res.json({ settings: rows[0] || null });
+      const { rows } = await pool.query(
+        "select *, (smtp_pass_enc is not null or coalesce(smtp_pass, '') <> '') as smtp_pass_set from company_settings where id = 'global' limit 1"
+      );
+      const r: any = rows[0] || null;
+      res.json({
+        settings: r
+          ? {
+              id: r.id,
+              company_name: r.company_name,
+              support_email: r.support_email,
+              support_phone: r.support_phone,
+              banking_details: r.banking_details,
+              logo_url: r.logo_url,
+              payment_processors: r.payment_processors ?? [],
+              payment_processor_settings: r.payment_processor_settings ?? {},
+              smtp_enabled: r.smtp_enabled,
+              smtp_host: r.smtp_host,
+              smtp_port: r.smtp_port,
+              smtp_secure: r.smtp_secure,
+              smtp_user: r.smtp_user,
+              smtp_from_email: r.smtp_from_email,
+              smtp_from_name: r.smtp_from_name,
+              notification_emails: r.notification_emails ?? [],
+              smtp_pass_set: Boolean(r.smtp_pass_set),
+              updated_at: r.updated_at,
+            }
+          : null,
+      });
     } catch {
       res.status(503).json({ error: "db_unavailable" });
     }
@@ -995,21 +1250,64 @@ async function startServer() {
     const paymentProcessorSettings =
       settingsRaw && typeof settingsRaw === "object" && !Array.isArray(settingsRaw) ? settingsRaw : {};
 
+    const smtpPortRaw = Number(req.body?.smtpPort);
+    const smtpPort = Number.isFinite(smtpPortRaw) && smtpPortRaw > 0 && smtpPortRaw <= 65535 ? Math.floor(smtpPortRaw) : 587;
+    const notificationEmailsRaw = Array.isArray(req.body?.notificationEmails)
+      ? req.body.notificationEmails
+      : typeof req.body?.notificationEmails === "string"
+        ? req.body.notificationEmails
+            .split(",")
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        : [];
+    const notificationEmails = normalizeEmailList(notificationEmailsRaw);
+
+    const smtpPassInput = typeof req.body?.smtpPass === "string" ? String(req.body.smtpPass) : "";
+    const shouldUpdateSmtpPass = smtpPassInput.trim().length > 0;
+
     const payload = {
-      company_name: String(req.body?.companyName ?? "DataConnect"),
+      company_name: String(req.body?.companyName ?? "IPT-NeT"),
       support_email: String(req.body?.supportEmail ?? ""),
       support_phone: String(req.body?.supportPhone ?? ""),
       banking_details: String(req.body?.bankingDetails ?? ""),
       logo_url: String(req.body?.logoUrl ?? ""),
       payment_processors: paymentProcessors,
       payment_processor_settings: paymentProcessorSettings,
+      smtp_enabled: Boolean(req.body?.smtpEnabled ?? false),
+      smtp_host: String(req.body?.smtpHost ?? ""),
+      smtp_port: smtpPort,
+      smtp_secure: Boolean(req.body?.smtpSecure ?? false),
+      smtp_user: String(req.body?.smtpUser ?? ""),
+      smtp_from_email: String(req.body?.smtpFromEmail ?? ""),
+      smtp_from_name: String(req.body?.smtpFromName ?? ""),
+      notification_emails: notificationEmails,
     };
+    if (payload.smtp_enabled) {
+      const key = SETTINGS_ENCRYPTION_KEY.trim();
+      if (key.length === 0) return res.status(400).json({ error: "encryption_key_required" });
+      if (key.length < 16) return res.status(400).json({ error: "encryption_key_too_short" });
+    }
     try {
-      const { rows } = await pool.query(
+      await pool.query(
         `update company_settings
-         set company_name = $1, support_email = $2, support_phone = $3, banking_details = $4, logo_url = $5, payment_processors = $6, payment_processor_settings = $7, updated_at = now()
+         set company_name = $1,
+             support_email = $2,
+             support_phone = $3,
+             banking_details = $4,
+             logo_url = $5,
+             payment_processors = $6,
+             payment_processor_settings = $7,
+             smtp_enabled = $8,
+             smtp_host = $9,
+             smtp_port = $10,
+             smtp_secure = $11,
+             smtp_user = $12,
+             smtp_from_email = $13,
+             smtp_from_name = $14,
+             notification_emails = $15,
+             updated_at = now()
          where id = 'global'
-         returning *`,
+         returning id`,
         [
           payload.company_name,
           payload.support_email,
@@ -1018,9 +1316,69 @@ async function startServer() {
           payload.logo_url,
           payload.payment_processors,
           payload.payment_processor_settings,
+          payload.smtp_enabled,
+          payload.smtp_host,
+          payload.smtp_port,
+          payload.smtp_secure,
+          payload.smtp_user,
+          payload.smtp_from_email,
+          payload.smtp_from_name,
+          payload.notification_emails,
         ]
       );
-      res.json({ settings: rows[0] });
+      if (shouldUpdateSmtpPass) {
+        if (SETTINGS_ENCRYPTION_KEY) {
+          await pool.query(
+            `update company_settings
+             set smtp_pass_enc = pgp_sym_encrypt($1, $2),
+                 smtp_pass = '',
+                 updated_at = now()
+             where id = 'global'`,
+            [smtpPassInput, SETTINGS_ENCRYPTION_KEY]
+          );
+        } else {
+          await pool.query(
+            `update company_settings
+             set smtp_pass = $1,
+                 smtp_pass_enc = null,
+                 updated_at = now()
+             where id = 'global'`,
+            [smtpPassInput]
+          );
+        }
+      }
+
+      emailConfigCache = { value: null, loadedAt: 0 };
+      transporterCache = null;
+
+      const { rows } = await pool.query(
+        "select *, (smtp_pass_enc is not null or coalesce(smtp_pass, '') <> '') as smtp_pass_set from company_settings where id = 'global' limit 1"
+      );
+      const r: any = rows[0] || null;
+      res.json({
+        settings: r
+          ? {
+              id: r.id,
+              company_name: r.company_name,
+              support_email: r.support_email,
+              support_phone: r.support_phone,
+              banking_details: r.banking_details,
+              logo_url: r.logo_url,
+              payment_processors: r.payment_processors ?? [],
+              payment_processor_settings: r.payment_processor_settings ?? {},
+              smtp_enabled: r.smtp_enabled,
+              smtp_host: r.smtp_host,
+              smtp_port: r.smtp_port,
+              smtp_secure: r.smtp_secure,
+              smtp_user: r.smtp_user,
+              smtp_from_email: r.smtp_from_email,
+              smtp_from_name: r.smtp_from_name,
+              notification_emails: r.notification_emails ?? [],
+              smtp_pass_set: Boolean(r.smtp_pass_set),
+              updated_at: r.updated_at,
+            }
+          : null,
+      });
     } catch {
       res.status(503).json({ error: "db_unavailable" });
     }
@@ -1980,6 +2338,40 @@ async function startServer() {
        returning id, status, created_at`,
       [userId, packageId, simId, reference, paymentMethod, amount, pkgName]
     );
+    void (async () => {
+      const cfg = await loadEmailConfig();
+      const companyName = cfg?.companyName || "IPT-NeT";
+      const userEmail = String(req.user?.email || "");
+      const createdAt = rows[0]?.created_at ? new Date(rows[0].created_at).toISOString() : "";
+      const adminText = [
+        "New Data Order",
+        "",
+        `Order ID: ${rows[0]?.id || ""}`,
+        createdAt ? `Created: ${createdAt}` : "",
+        `Client: ${userEmail}`,
+        `SIM: ${reference}`,
+        `Package: ${pkgName}`,
+        `Amount: R${amount.toFixed(2)}`,
+        `Payment Method: ${paymentMethod}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const clientText = [
+        `Hi${String(req.user?.name || "").trim() ? ` ${String(req.user?.name || "").trim()}` : ""},`,
+        "",
+        `We received your data order.`,
+        "",
+        `SIM: ${reference}`,
+        `Package: ${pkgName}`,
+        `Amount: R${amount.toFixed(2)}`,
+        `Payment Method: ${paymentMethod}`,
+        "",
+        "Thank you,",
+        companyName,
+      ].join("\n");
+      await sendAdminEmail({ subject: `New Data Order: ${pkgName}`, text: adminText });
+      if (userEmail) await sendClientEmail({ email: userEmail, subject: `Order received: ${pkgName}`, text: clientText });
+    })().catch((e) => logEmailError("data_order_new", e, { orderId: rows[0]?.id, clientEmail: String(req.user?.email || "") }));
     res.json({ order: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
 
@@ -2038,6 +2430,46 @@ async function startServer() {
        returning id, status, created_at`,
       [userId, packageId, amount, packageAmount, deliveryFee, pkgName, reference, paymentMethod, address, notes]
     );
+    void (async () => {
+      const cfg = await loadEmailConfig();
+      const companyName = cfg?.companyName || "IPT-NeT";
+      const userEmail = String(req.user?.email || "");
+      const createdAt = rows[0]?.created_at ? new Date(rows[0].created_at).toISOString() : "";
+      const adminText = [
+        "New LTE / 5G Order",
+        "",
+        `Order ID: ${rows[0]?.id || ""}`,
+        createdAt ? `Created: ${createdAt}` : "",
+        `Client: ${userEmail}`,
+        `Package: ${pkgName}`,
+        `Reference: ${reference}`,
+        `Payment Method: ${paymentMethod}`,
+        `Package Amount: R${packageAmount.toFixed(2)}`,
+        `Delivery/Activation Fee: R${deliveryFee.toFixed(2)}`,
+        `Total Amount: R${amount.toFixed(2)}`,
+        address ? "" : "",
+        address ? `Address:\n${address}` : "",
+        notes ? "" : "",
+        notes ? `Notes:\n${notes}` : "",
+      ]
+        .filter((x) => x !== "")
+        .join("\n");
+      const clientText = [
+        `Hi${String(req.user?.name || "").trim() ? ` ${String(req.user?.name || "").trim()}` : ""},`,
+        "",
+        `We received your LTE / 5G order.`,
+        "",
+        `Package: ${pkgName}`,
+        `Reference: ${reference}`,
+        `Payment Method: ${paymentMethod}`,
+        `Total Amount: R${amount.toFixed(2)}`,
+        "",
+        "Thank you,",
+        companyName,
+      ].join("\n");
+      await sendAdminEmail({ subject: `New LTE / 5G Order: ${pkgName}`, text: adminText });
+      if (userEmail) await sendClientEmail({ email: userEmail, subject: `Order received: ${pkgName}`, text: clientText });
+    })().catch((e) => logEmailError("lte_order_new", e, { orderId: rows[0]?.id, clientEmail: String(req.user?.email || "") }));
     res.json({ order: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
 
@@ -2122,7 +2554,7 @@ async function startServer() {
 
     try {
       const suffix = adminComment ? ` Comment: ${adminComment}` : "";
-      await sendZoomconnectSms(order.user_phone || "", `DataConnect: Your LTE / 5G order for ${order.package_name} was rejected.${suffix}`);
+      await sendZoomconnectSms(order.user_phone || "", `IPT-NeT: Your LTE / 5G order for ${order.package_name} was rejected.${suffix}`);
     } catch {
     }
     res.json({ ok: true });
@@ -2150,7 +2582,7 @@ async function startServer() {
 
     try {
       const suffix = adminComment ? ` Comment: ${adminComment}` : "";
-      await sendZoomconnectSms(order.user_phone || "", `DataConnect: Your LTE / 5G order for ${order.package_name} is completed.${suffix}`);
+      await sendZoomconnectSms(order.user_phone || "", `IPT-NeT: Your LTE / 5G order for ${order.package_name} is completed.${suffix}`);
     } catch {
     }
     res.json({ ok: true });
@@ -2172,6 +2604,45 @@ async function startServer() {
        returning id, status, created_at`,
       [userId, network, address, notes, reference, paymentMethod, amount]
     );
+    void (async () => {
+      const cfg = await loadEmailConfig();
+      const companyName = cfg?.companyName || "IPT-NeT";
+      const userEmail = String(req.user?.email || "");
+      const createdAt = rows[0]?.created_at ? new Date(rows[0].created_at).toISOString() : "";
+      const adminText = [
+        "New SIM Order",
+        "",
+        `Order ID: ${rows[0]?.id || ""}`,
+        createdAt ? `Created: ${createdAt}` : "",
+        `Client: ${userEmail}`,
+        network ? `Network: ${network}` : "",
+        `Reference: ${reference}`,
+        `Payment Method: ${paymentMethod}`,
+        `Amount: R${Number(amount).toFixed(2)}`,
+        address ? "" : "",
+        address ? `Address:\n${address}` : "",
+        notes ? "" : "",
+        notes ? `Notes:\n${notes}` : "",
+      ]
+        .filter((x) => x !== "")
+        .join("\n");
+      const clientText = [
+        `Hi${String(req.user?.name || "").trim() ? ` ${String(req.user?.name || "").trim()}` : ""},`,
+        "",
+        `We received your SIM order.`,
+        "",
+        network ? `Network: ${network}` : "",
+        `Amount: R${Number(amount).toFixed(2)}`,
+        `Payment Method: ${paymentMethod}`,
+        "",
+        "Thank you,",
+        companyName,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      await sendAdminEmail({ subject: `New SIM Order${network ? `: ${network}` : ""}`, text: adminText });
+      if (userEmail) await sendClientEmail({ email: userEmail, subject: `SIM order received`, text: clientText });
+    })().catch((e) => logEmailError("sim_order_new", e, { orderId: rows[0]?.id, clientEmail: String(req.user?.email || "") }));
     res.json({ order: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
 
@@ -2255,10 +2726,10 @@ async function startServer() {
       const suffix = adminComment ? ` Comment: ${adminComment}` : "";
       const msg =
         status === "completed"
-          ? `DataConnect: Your SIM order (${order.network}) is completed.${suffix}`
+          ? `IPT-NeT: Your SIM order (${order.network}) is completed.${suffix}`
           : status === "rejected"
-            ? `DataConnect: Your SIM order (${order.network}) was rejected.${suffix}`
-            : `DataConnect: Your SIM order (${order.network}) was updated.${suffix}`;
+            ? `IPT-NeT: Your SIM order (${order.network}) was rejected.${suffix}`
+            : `IPT-NeT: Your SIM order (${order.network}) was updated.${suffix}`;
       await sendZoomconnectSms(order.user_phone || "", msg);
     } catch {
     }
@@ -2277,6 +2748,25 @@ async function startServer() {
        returning id, status, created_at`,
       [userId, networkPreference, address, notes]
     );
+    void (async () => {
+      const userEmail = String(req.user?.email || "");
+      const createdAt = rows[0]?.created_at ? new Date(rows[0].created_at).toISOString() : "";
+      const text = [
+        "New Coverage Check Request",
+        "",
+        `Request ID: ${rows[0]?.id || ""}`,
+        createdAt ? `Created: ${createdAt}` : "",
+        `Client: ${userEmail}`,
+        networkPreference ? `Network Preference: ${networkPreference}` : "",
+        address ? "" : "",
+        address ? `Address:\n${address}` : "",
+        notes ? "" : "",
+        notes ? `Notes:\n${notes}` : "",
+      ]
+        .filter((x) => x !== "")
+        .join("\n");
+      await sendAdminEmail({ subject: "New Coverage Check Request", text });
+    })().catch((e) => logEmailError("coverage_check_new", e, { requestId: rows[0]?.id, clientEmail: String(req.user?.email || "") }));
     res.json({ request: { id: rows[0].id, status: rows[0].status, createdAt: rows[0].created_at } });
   });
 
@@ -2363,7 +2853,7 @@ async function startServer() {
         if (names.length > 0) packagePart = ` Suggested: ${names.join(", ")}`;
       }
       const commentPart = adminComment ? ` Comment: ${adminComment}` : "";
-      await sendZoomconnectSms(reqRow.user_phone || "", `DataConnect: Coverage check update (${reqRow.address}) - ${status}.${commentPart}${packagePart}`);
+      await sendZoomconnectSms(reqRow.user_phone || "", `IPT-NeT: Coverage check update (${reqRow.address}) - ${status}.${commentPart}${packagePart}`);
     } catch {
     }
     res.json({ ok: true });
@@ -2414,7 +2904,7 @@ async function startServer() {
 
     const recipient = order.user_phone || order.reference || "";
     try {
-      await sendZoomconnectSms(recipient, `DataConnect: Your top-up order for ${order.package_name} was rejected.`);
+      await sendZoomconnectSms(recipient, `IPT-NeT: Your top-up order for ${order.package_name} was rejected.`);
     } catch {
     }
     res.json({ ok: true });
@@ -2454,7 +2944,7 @@ async function startServer() {
       const phoneRes = await pool.query("select phone from users where id = $1 limit 1", [order.user_id]);
       const recipient = phoneRes.rows[0]?.phone || order.reference || "";
       try {
-        await sendZoomconnectSms(recipient, `DataConnect: Your top-up order for ${order.package_name} is completed.`);
+        await sendZoomconnectSms(recipient, `IPT-NeT: Your top-up order for ${order.package_name} is completed.`);
       } catch {
       }
       res.json({ ok: true });

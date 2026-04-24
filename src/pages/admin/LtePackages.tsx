@@ -385,9 +385,9 @@ export default function AdminLtePackages() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Networks</SelectItem>
-                <SelectItem value="MTN">MTN</SelectItem>
-                <SelectItem value="Vodacom">Vodacom</SelectItem>
-                <SelectItem value="Telkom">Telkom</SelectItem>
+                <SelectItem value="MTN">MTN LTE / 5G Package</SelectItem>
+                <SelectItem value="Telkom">Telkom LTE / 5G Package</SelectItem>
+                <SelectItem value="Vodacom">Vodacom LTE / 5G Package</SelectItem>
                 <SelectItem value="other">Other</SelectItem>
               </SelectContent>
             </Select>
@@ -686,9 +686,9 @@ export default function AdminLtePackages() {
                     <SelectValue placeholder="Select network..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="MTN">MTN</SelectItem>
-                    <SelectItem value="Vodacom">Vodacom</SelectItem>
-                    <SelectItem value="Telkom">Telkom</SelectItem>
+                    <SelectItem value="MTN">MTN LTE / 5G Package</SelectItem>
+                    <SelectItem value="Telkom">Telkom LTE / 5G Package</SelectItem>
+                    <SelectItem value="Vodacom">Vodacom LTE / 5G Package</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

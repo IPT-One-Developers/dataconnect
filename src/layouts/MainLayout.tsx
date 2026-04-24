@@ -29,11 +29,11 @@ export default function MainLayout() {
 
   const adminLinks = [
     { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-    { name: 'TopUp Orders', href: '/admin/orders', icon: History },
+    { name: 'Orders', href: '/admin/orders', icon: History },
     { name: 'Coverage Checks', href: '/admin/coverage-checks', icon: History },
     { name: 'Manage Packages', href: '/admin/packages', icon: Package },
     { name: 'LTE / 5G Packages', href: '/admin/lte-packages', icon: SignalHigh },
-    { name: 'Manage SIM IDs', href: '/admin/sims', icon: SimCardIcon },
+    { name: 'Manage Sim Cards', href: '/admin/sims', icon: SimCardIcon },
     { name: 'Client Manager', href: '/admin/users', icon: Users },
     { name: 'Sales Reports', href: '/admin/reports', icon: BarChart3 },
     { name: 'Company Settings', href: '/admin/settings', icon: Bell },
@@ -53,7 +53,7 @@ export default function MainLayout() {
       <aside className="w-60 bg-slate-900 text-white flex flex-col shrink-0 border-r border-slate-800">
         <div className="h-20 flex items-center px-6">
           <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center font-bold text-white mr-3">M</div>
-          <span className="text-xl font-bold tracking-tight">DataConnect</span>
+          <span className="text-xl font-bold tracking-tight">IPT-NeT</span>
         </div>
         <nav className="flex-1 px-4 py-4 space-y-2">
           {links.map((item) => {
