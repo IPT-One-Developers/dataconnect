@@ -165,7 +165,10 @@ export default function ClientLteOrders() {
                 <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
               ) : null}
               {String(pkg.fup || "").trim() ? (
-                <p className="text-[10px] text-slate-500 mb-4">{`FUP: ${String(pkg.fup || "").trim()}`}</p>
+                <div className="text-[10px] text-slate-500 mb-4 whitespace-pre-wrap">
+                  <div className="font-semibold text-slate-600">FUP</div>
+                  <div>{String(pkg.fup || "").trim()}</div>
+                </div>
               ) : (
                 <div className="mb-4" />
               )}

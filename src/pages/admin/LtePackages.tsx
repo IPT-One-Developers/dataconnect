@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
@@ -14,6 +14,7 @@ export default function AdminLtePackages() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const fupRef = useRef<HTMLTextAreaElement | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -38,6 +39,61 @@ export default function AdminLtePackages() {
     const n = Number(normalized);
     return Number.isFinite(n) ? n : NaN;
   };
+
+  const setFup = (next: string) => setFormData((prev) => ({ ...prev, fup: next }));
+
+  const withFupSelection = (fn: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {
+    const el = fupRef.current;
+    const current = String(formData.fup || "");
+    const start = el ? el.selectionStart ?? current.length : current.length;
+    const end = el ? el.selectionEnd ?? current.length : current.length;
+    const next = fn(current, start, end);
+    setFup(next.value);
+    requestAnimationFrame(() => {
+      const t = fupRef.current;
+      if (!t) return;
+      t.focus();
+      t.setSelectionRange(next.start, next.end);
+    });
+  };
+
+  const wrapSelection = (before: string, after: string) =>
+    withFupSelection((value, start, end) => {
+      const selected = value.slice(start, end);
+      const nextValue = value.slice(0, start) + before + selected + after + value.slice(end);
+      const nextStart = start + before.length;
+      const nextEnd = end + before.length;
+      return { value: nextValue, start: nextStart, end: nextEnd };
+    });
+
+  const prefixLines = (prefix: string) =>
+    withFupSelection((value, start, end) => {
+      const left = value.slice(0, start);
+      const right = value.slice(end);
+      const selected = value.slice(start, end);
+      const startLineIndex = left.lastIndexOf("\n") + 1;
+      const endLineIndex = end + (value.slice(end).indexOf("\n") === -1 ? value.length - end : value.slice(end).indexOf("\n"));
+      const block = value.slice(startLineIndex, endLineIndex);
+      const nextBlock = block
+        .split("\n")
+        .map((line) => (line.trim() ? `${prefix}${line}` : line))
+        .join("\n");
+      const nextValue = value.slice(0, startLineIndex) + nextBlock + value.slice(endLineIndex);
+      const delta = nextBlock.length - block.length;
+      const nextStart = start + (nextBlock.startsWith(prefix) ? prefix.length : 0);
+      const nextEnd = end + delta;
+      return { value: nextValue, start: nextStart, end: nextEnd };
+    });
+
+  const insertLink = () =>
+    withFupSelection((value, start, end) => {
+      const selected = value.slice(start, end) || "link text";
+      const snippet = `[${selected}](https://)`;
+      const nextValue = value.slice(0, start) + snippet + value.slice(end);
+      const urlStart = start + snippet.lastIndexOf("(") + 1;
+      const urlEnd = urlStart + "https://".length;
+      return { value: nextValue, start: urlStart, end: urlEnd };
+    });
 
   const loadData = async () => {
     try {
@@ -385,9 +441,24 @@ export default function AdminLtePackages() {
               ) : null}
               <div className="grid gap-2">
                 <Label>Fair Usage Policy (FUP)</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="xs" onClick={() => wrapSelection("**", "**")}>
+                    Bold
+                  </Button>
+                  <Button type="button" variant="outline" size="xs" onClick={() => wrapSelection("*", "*")}>
+                    Italic
+                  </Button>
+                  <Button type="button" variant="outline" size="xs" onClick={() => prefixLines("- ")}>
+                    Bullet
+                  </Button>
+                  <Button type="button" variant="outline" size="xs" onClick={insertLink}>
+                    Link
+                  </Button>
+                </div>
                 <textarea
+                  ref={fupRef}
                   value={formData.fup}
-                  onChange={(e) => setFormData({ ...formData, fup: e.target.value })}
+                  onChange={(e) => setFup(e.target.value)}
                   placeholder="Optional"
                   rows={4}
                   className="w-full min-w-0 resize-y rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80"
