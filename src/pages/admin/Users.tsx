@@ -8,6 +8,7 @@ import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../../components/ui/dialog";
 import { MoreHorizontal, Edit, Trash2, Ban, CheckCircle, ShieldAlert } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +24,7 @@ export default function AdminUsers() {
   
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
-  const [addForm, setAddForm] = useState({ name: '', email: '', password: '', phone: '' });
+  const [addForm, setAddForm] = useState({ name: '', email: '', password: '', phone: '', role: 'client' as "admin" | "staff" | "client" });
 
   const navigate = useNavigate();
 
@@ -60,12 +61,12 @@ export default function AdminUsers() {
     loadUsers();
   }, []);
 
-  const toggleRole = async (userId: string, currentRole: string) => {
+  const setRole = async (userId: string, nextRole: "admin" | "staff" | "client") => {
     try {
-      if (confirm('Are you sure you want to change this user\'s access level?')) {
+      if (confirm("Are you sure you want to change this user's access level?")) {
         await api(`/api/admin/users/${userId}`, {
           method: "PATCH",
-          body: JSON.stringify({ role: currentRole === "admin" ? "client" : "admin" }),
+          body: JSON.stringify({ role: nextRole }),
         });
         loadUsers();
         alert("Role updated. The user may need to log out and log in again to see the correct dashboard.");
@@ -124,19 +125,19 @@ export default function AdminUsers() {
      }
   };
 
-  const handleAddClient = async (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.email || !addForm.password) return;
     setAddLoading(true);
     try {
       await api("/api/admin/users", { method: "POST", body: JSON.stringify(addForm) });
       setIsAddOpen(false);
-      setAddForm({ name: '', email: '', password: '', phone: '' });
+      setAddForm({ name: '', email: '', password: '', phone: '', role: 'client' });
       loadUsers();
-      alert("Client added successfully!");
+      alert("User added successfully!");
     } catch (err: any) {
       console.error("Failed to add client", err);
-      alert(`Error creating client: ${err.message}`);
+      alert(`Error creating user: ${err.message}`);
     } finally {
       setAddLoading(false);
     }
@@ -183,15 +184,15 @@ export default function AdminUsers() {
     <div className="max-w-7xl mx-auto space-y-8">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Client Manager</h2>
-          <p className="text-sm text-slate-500 mt-1">Platform user accounts, client profiles, and their roles.</p>
+          <h2 className="text-lg font-bold text-slate-800">User Manager</h2>
+          <p className="text-sm text-slate-500 mt-1">Platform user accounts, staff access, and roles.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={seedDemoData} className="font-bold rounded-lg">
             Seed Demo Data
           </Button>
           <Button onClick={() => setIsAddOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 font-bold rounded-lg">
-            + Add Client
+            + Add User
           </Button>
         </div>
       </div>
@@ -235,8 +236,8 @@ export default function AdminUsers() {
                 <TableCell>{u.phone || '-'}</TableCell>
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">
-                     <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>
-                       {u.role}
+                     <Badge variant={u.role === 'admin' ? 'default' : u.role === 'staff' ? 'secondary' : 'outline'}>
+                       {u.role === "admin" ? "admin" : u.role === "staff" ? "staff" : "client"}
                      </Badge>
                      {u.status === 'suspended' && (
                         <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider flex items-center gap-1">
@@ -256,13 +257,19 @@ export default function AdminUsers() {
                        <DropdownMenuItem onClick={() => navigate(`/admin/users/${u.id}`)}>
                          <Edit className="mr-2 h-4 w-4" /> Edit / View Details
                        </DropdownMenuItem>
-                       <DropdownMenuItem onClick={() => toggleRole(u.id, u.role)}>
-                         <ShieldAlert className="mr-2 h-4 w-4" /> Toggle Admin
-                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setRole(u.id, "admin")}>
+                        <ShieldAlert className="mr-2 h-4 w-4" /> Set Role: Admin
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setRole(u.id, "staff")}>
+                        <ShieldAlert className="mr-2 h-4 w-4" /> Set Role: Staff
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setRole(u.id, "client")}>
+                        <ShieldAlert className="mr-2 h-4 w-4" /> Set Role: Client
+                      </DropdownMenuItem>
                        <DropdownMenuSeparator />
                        <DropdownMenuItem onClick={() => handleSuspendClient(u.id, u.status)}>
                          {u.status === 'suspended' ? <CheckCircle className="mr-2 h-4 w-4 text-emerald-600" /> : <Ban className="mr-2 h-4 w-4 text-orange-600" />}
-                         <span>{u.status === 'suspended' ? 'Reactivate Client' : 'Suspend Client'}</span>
+                         <span>{u.status === 'suspended' ? 'Reactivate User' : 'Suspend User'}</span>
                        </DropdownMenuItem>
                        <DropdownMenuItem onClick={() => handleRemoveClient(u.id)} className="text-red-600 focus:text-red-600">
                          <Trash2 className="mr-2 h-4 w-4" /> Remove Identity
@@ -280,12 +287,25 @@ export default function AdminUsers() {
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add New Client</DialogTitle>
+              <DialogTitle>Add New User</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleAddClient} className="space-y-4">
+            <form onSubmit={handleAddUser} className="space-y-4">
                <div>
                   <Label>Email *</Label>
                   <Input type="email" value={addForm.email} onChange={e => setAddForm({...addForm, email: e.target.value})} required />
+               </div>
+               <div>
+                  <Label>Role *</Label>
+                  <Select value={addForm.role} onValueChange={(v) => setAddForm({ ...addForm, role: v as any })}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select role..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="client">Client</SelectItem>
+                      <SelectItem value="staff">Staff</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
                </div>
                <div>
                   <Label>Password * (Temp Login)</Label>
@@ -301,7 +321,7 @@ export default function AdminUsers() {
                </div>
                <DialogFooter className="mt-4">
                  <Button type="button" variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-                 <Button type="submit" disabled={addLoading}>{addLoading ? 'Creating...' : 'Create Client'}</Button>
+                 <Button type="submit" disabled={addLoading}>{addLoading ? 'Creating...' : 'Create User'}</Button>
                </DialogFooter>
             </form>
           </DialogContent>

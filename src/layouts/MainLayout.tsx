@@ -39,7 +39,9 @@ export default function MainLayout() {
     { name: 'Company Settings', href: '/admin/settings', icon: Bell },
   ];
 
-  const links = role === "admin" ? adminLinks : clientLinks;
+  const staffLinks = adminLinks.filter((l) => l.href !== "/admin/users" && l.href !== "/admin/settings");
+
+  const links = role === "client" ? clientLinks : role === "admin" ? adminLinks : staffLinks;
 
   const handleSignOut = async () => {
     await logout();
@@ -82,7 +84,9 @@ export default function MainLayout() {
                 </div>
              )}
             <div className="overflow-hidden">
-              <div className="text-xs text-slate-400 mb-1 uppercase tracking-widest">{role === "admin" ? "Admin Mode" : "Client Mode"}</div>
+              <div className="text-xs text-slate-400 mb-1 uppercase tracking-widest">
+                {role === "admin" ? "Admin Mode" : role === "staff" ? "Staff Mode" : "Client Mode"}
+              </div>
               <div className="text-sm font-semibold truncate text-white">{user?.email}</div>
             </div>
           </div>

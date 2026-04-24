@@ -6,14 +6,14 @@ export type AppUser = {
   email: string;
   name: string;
   phone: string;
-  role: "client" | "admin";
+  role: "client" | "admin" | "staff";
   status: "active" | "suspended";
   photoUrl: string | null;
 };
 
 interface AuthState {
   user: AppUser | null;
-  role: "client" | "admin" | null;
+  role: "client" | "admin" | "staff" | null;
   photoURL: string | null;
   loading: boolean;
   hydrate: () => Promise<void>;

@@ -43,7 +43,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={!user ? <Login /> : <Navigate to={role === "admin" ? "/admin" : "/client"} />} />
+        <Route path="/login" element={!user ? <Login /> : <Navigate to={role === "client" ? "/client" : "/admin"} />} />
         
         {/* Protected Client Routes */}
         <Route path="/client" element={user && role === "client" ? <MainLayout /> : <Navigate to="/login" />}>
@@ -58,17 +58,17 @@ export default function App() {
         </Route>
 
         {/* Protected Admin Routes */}
-        <Route path="/admin" element={user && role === "admin" ? <MainLayout /> : <Navigate to="/login" />}>
+        <Route path="/admin" element={user && (role === "admin" || role === "staff") ? <MainLayout /> : <Navigate to="/login" />}>
           <Route index element={<AdminDashboard />} />
           <Route path="orders" element={<AdminOrders />} />
           <Route path="coverage-checks" element={<AdminCoverageChecks />} />
           <Route path="packages" element={<AdminPackages />} />
           <Route path="lte-packages" element={<AdminLtePackages />} />
           <Route path="sims" element={<AdminSims />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="users/:id" element={<AdminClientDetails />} />
+          <Route path="users" element={role === "admin" ? <AdminUsers /> : <Navigate to="/admin" />} />
+          <Route path="users/:id" element={role === "admin" ? <AdminClientDetails /> : <Navigate to="/admin" />} />
           <Route path="reports" element={<AdminReports />} />
-          <Route path="settings" element={<AdminSettings />} />
+          <Route path="settings" element={role === "admin" ? <AdminSettings /> : <Navigate to="/admin" />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" />} />

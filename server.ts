@@ -13,7 +13,7 @@ type AuthedUser = {
   email: string;
   name: string;
   phone: string;
-  role: "admin" | "client";
+  role: "admin" | "staff" | "client";
   status: "active" | "suspended";
   photoUrl: string | null;
 };
@@ -140,7 +140,14 @@ async function ensureExtendedSchema() {
 
     await pool.query(
       `do $$ begin
-         create type user_role as enum ('admin', 'client');
+         create type user_role as enum ('admin', 'staff', 'client');
+       exception
+         when duplicate_object then null;
+       end $$;`
+    ).catch(() => {});
+    await pool.query(
+      `do $$ begin
+         alter type user_role add value 'staff';
        exception
          when duplicate_object then null;
        end $$;`
@@ -465,6 +472,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   if (!req.user) return res.status(401).json({ error: "unauthorized" });
   if (req.user.status !== "active") return res.status(403).json({ error: "account_suspended" });
   if (req.user.role !== "admin") return res.status(403).json({ error: "forbidden" });
+  next();
+}
+
+async function requireStaffOrAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!req.user) return res.status(401).json({ error: "unauthorized" });
+  if (req.user.status !== "active") return res.status(403).json({ error: "account_suspended" });
+  if (req.user.role !== "admin" && req.user.role !== "staff") return res.status(403).json({ error: "forbidden" });
   next();
 }
 
@@ -871,7 +885,7 @@ async function startServer() {
 
     let userRow: any;
     try {
-      let role: "admin" | "client" = "client";
+      let role: "admin" | "staff" | "client" = "client";
       if (email === "microdevelopers8@gmail.com") {
         try {
           const existingAdmins = await pool.query("select count(*)::int as count from users where role = 'admin'");
@@ -1053,16 +1067,18 @@ async function startServer() {
     const password = String(req.body?.password || "");
     const name = String(req.body?.name || "").trim();
     const phone = String(req.body?.phone || "").trim();
+    const role = String(req.body?.role || "client");
     if (!email || !password) return res.status(400).json({ error: "invalid_input" });
     if (password.length < 6) return res.status(400).json({ error: "password_too_short" });
+    if (role !== "admin" && role !== "staff" && role !== "client") return res.status(400).json({ error: "invalid_role" });
 
     const passwordHash = await bcrypt.hash(password, 12);
     try {
       const { rows } = await pool.query(
         `insert into users (email, password_hash, name, phone, role, status)
-         values ($1, $2, $3, $4, 'client', 'active')
+         values ($1, $2, $3, $4, $5, 'active')
          returning id, email, name, phone, role, status, photo_url, created_at`,
-        [email, passwordHash, name, phone]
+        [email, passwordHash, name, phone, role]
       );
       const u = rows[0];
       res.json({
@@ -1094,7 +1110,7 @@ async function startServer() {
     let idx = 1;
 
     if (role) {
-      if (role !== "admin" && role !== "client") return res.status(400).json({ error: "invalid_role" });
+      if (role !== "admin" && role !== "staff" && role !== "client") return res.status(400).json({ error: "invalid_role" });
       sets.push(`role = $${idx++}`);
       values.push(role);
     }
@@ -1226,7 +1242,7 @@ async function startServer() {
     });
   });
 
-  app.post("/api/admin/packages", requireAdmin, async (req, res) => {
+  app.post("/api/admin/packages", requireStaffOrAdmin, async (req, res) => {
     const payload = {
       name: String(req.body?.name || "").trim(),
       description: String(req.body?.description || "").trim(),
@@ -1259,7 +1275,7 @@ async function startServer() {
     });
   });
 
-  app.put("/api/admin/packages/:id", requireAdmin, async (req, res) => {
+  app.put("/api/admin/packages/:id", requireStaffOrAdmin, async (req, res) => {
     const packageId = String(req.params.id);
     const payload = {
       name: String(req.body?.name || "").trim(),
@@ -1292,7 +1308,7 @@ async function startServer() {
     });
   });
 
-  app.patch("/api/admin/packages/:id/status", requireAdmin, async (req, res) => {
+  app.patch("/api/admin/packages/:id/status", requireStaffOrAdmin, async (req, res) => {
     const packageId = String(req.params.id);
     const isActive = Boolean(req.body?.isActive);
     const { rows } = await pool.query(
@@ -1317,7 +1333,7 @@ async function startServer() {
     });
   });
 
-  app.delete("/api/admin/packages/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/admin/packages/:id", requireStaffOrAdmin, async (req, res) => {
     try {
       const packageId = String(req.params.id);
       const { rows } = await pool.query("select id from data_packages where id = $1 limit 1", [packageId]);
@@ -1339,7 +1355,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/packages/reorder", requireAdmin, async (req, res) => {
+  app.post("/api/admin/packages/reorder", requireStaffOrAdmin, async (req, res) => {
     const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
     if (ids.length === 0) return res.status(400).json({ error: "invalid_input" });
     const unique = Array.from(new Set(ids.map((x) => String(x))));
@@ -1398,7 +1414,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/lte-packages", requireAdmin, async (req, res) => {
+  app.post("/api/admin/lte-packages", requireStaffOrAdmin, async (req, res) => {
     try {
       await ensureExtendedSchema().catch(() => {});
       const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -1470,7 +1486,7 @@ async function startServer() {
     }
   });
 
-  app.put("/api/admin/lte-packages/:id", requireAdmin, async (req, res) => {
+  app.put("/api/admin/lte-packages/:id", requireStaffOrAdmin, async (req, res) => {
     try {
       await ensureExtendedSchema().catch(() => {});
       const id = String(req.params.id);
@@ -1543,7 +1559,7 @@ async function startServer() {
     }
   });
 
-  app.patch("/api/admin/lte-packages/:id/status", requireAdmin, async (req, res) => {
+  app.patch("/api/admin/lte-packages/:id/status", requireStaffOrAdmin, async (req, res) => {
     try {
       await ensureExtendedSchema().catch(() => {});
       const id = String(req.params.id);
@@ -1579,7 +1595,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/admin/lte-packages/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/admin/lte-packages/:id", requireStaffOrAdmin, async (req, res) => {
     try {
       await ensureExtendedSchema().catch(() => {});
       const id = String(req.params.id);
@@ -1602,7 +1618,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/lte-packages/reorder", requireAdmin, async (req, res) => {
+  app.post("/api/admin/lte-packages/reorder", requireStaffOrAdmin, async (req, res) => {
     try {
       await ensureExtendedSchema().catch(() => {});
       const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
@@ -1629,7 +1645,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/admin/sims", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/sims", requireStaffOrAdmin, async (_req, res) => {
     const { rows } = await pool.query(
       `select
          s.id,
@@ -1680,7 +1696,7 @@ async function startServer() {
     });
   });
 
-  app.post("/api/admin/sims", requireAdmin, async (req, res) => {
+  app.post("/api/admin/sims", requireStaffOrAdmin, async (req, res) => {
     const payload = {
       userId: String(req.body?.userId || ""),
       iccid: String(req.body?.iccid || "").trim(),
@@ -1707,7 +1723,7 @@ async function startServer() {
     });
   });
 
-  app.patch("/api/admin/sims/:id/status", requireAdmin, async (req, res) => {
+  app.patch("/api/admin/sims/:id/status", requireStaffOrAdmin, async (req, res) => {
     const simId = String(req.params.id);
     const status = String(req.body?.status || "active");
     const { rows } = await pool.query(
@@ -1730,7 +1746,7 @@ async function startServer() {
     });
   });
 
-  app.put("/api/admin/sims/:id/bundle", requireAdmin, async (req, res) => {
+  app.put("/api/admin/sims/:id/bundle", requireStaffOrAdmin, async (req, res) => {
     const simId = String(req.params.id);
     const packageId = String(req.body?.packageId || "");
     const remainingAmountMBRaw = Number(req.body?.remainingAmountMB);
@@ -2053,7 +2069,7 @@ async function startServer() {
     });
   });
 
-  app.get("/api/admin/lte-orders", requireAdmin, async (req, res) => {
+  app.get("/api/admin/lte-orders", requireStaffOrAdmin, async (req, res) => {
     const status = String(req.query.status || "pending");
     const { rows } = await pool.query(
       `select o.*, u.email as user_email
@@ -2084,7 +2100,7 @@ async function startServer() {
     });
   });
 
-  app.post("/api/admin/lte-orders/:id/reject", requireAdmin, async (req, res) => {
+  app.post("/api/admin/lte-orders/:id/reject", requireStaffOrAdmin, async (req, res) => {
     const id = String(req.params.id);
     const adminComment = String(req.body?.adminComment || "");
     const orderRes = await pool.query(
@@ -2112,7 +2128,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.post("/api/admin/lte-orders/:id/fulfill", requireAdmin, async (req, res) => {
+  app.post("/api/admin/lte-orders/:id/fulfill", requireStaffOrAdmin, async (req, res) => {
     const id = String(req.params.id);
     const adminComment = String(req.body?.adminComment || "");
     const orderRes = await pool.query(
@@ -2184,7 +2200,7 @@ async function startServer() {
     });
   });
 
-  app.get("/api/admin/sim-orders", requireAdmin, async (req, res) => {
+  app.get("/api/admin/sim-orders", requireStaffOrAdmin, async (req, res) => {
     const status = String(req.query.status || "pending");
     const { rows } = await pool.query(
       `select o.*, u.email as user_email
@@ -2212,7 +2228,7 @@ async function startServer() {
     });
   });
 
-  app.put("/api/admin/sim-orders/:id", requireAdmin, async (req, res) => {
+  app.put("/api/admin/sim-orders/:id", requireStaffOrAdmin, async (req, res) => {
     const id = String(req.params.id);
     const status = String(req.body?.status || "");
     const adminComment = String(req.body?.adminComment || "");
@@ -2287,7 +2303,7 @@ async function startServer() {
     });
   });
 
-  app.get("/api/admin/coverage-checks", requireAdmin, async (req, res) => {
+  app.get("/api/admin/coverage-checks", requireStaffOrAdmin, async (req, res) => {
     const status = String(req.query.status || "open");
     const { rows } = await pool.query(
       `select r.*, u.email as user_email
@@ -2313,7 +2329,7 @@ async function startServer() {
     });
   });
 
-  app.put("/api/admin/coverage-checks/:id", requireAdmin, async (req, res) => {
+  app.put("/api/admin/coverage-checks/:id", requireStaffOrAdmin, async (req, res) => {
     const id = String(req.params.id);
     const status = String(req.body?.status || "");
     const adminComment = String(req.body?.adminComment || "");
@@ -2353,7 +2369,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.get("/api/admin/orders", requireAdmin, async (req, res) => {
+  app.get("/api/admin/orders", requireStaffOrAdmin, async (req, res) => {
     const status = String(req.query.status || "pending");
     const { rows } = await pool.query(
       `select o.*, u.email as user_email
@@ -2380,7 +2396,7 @@ async function startServer() {
     });
   });
 
-  app.post("/api/admin/orders/:id/reject", requireAdmin, async (req, res) => {
+  app.post("/api/admin/orders/:id/reject", requireStaffOrAdmin, async (req, res) => {
     const orderId = String(req.params.id);
     const orderRes = await pool.query(
       `select o.id, o.status, o.user_id, o.package_name, o.reference, u.phone as user_phone
@@ -2404,7 +2420,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.post("/api/admin/orders/:id/fulfill", requireAdmin, async (req, res) => {
+  app.post("/api/admin/orders/:id/fulfill", requireStaffOrAdmin, async (req, res) => {
     const orderId = String(req.params.id);
 
     const orderRes = await pool.query("select * from orders where id = $1 limit 1", [orderId]);
@@ -2471,7 +2487,7 @@ async function startServer() {
     });
   });
 
-  app.get("/api/admin/dashboard", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/dashboard", requireStaffOrAdmin, async (_req, res) => {
     const users = await pool.query("select count(*)::int as count from users");
     const sims = await pool.query("select count(*)::int as count from sim_cards");
     const tx = await pool.query("select count(*)::int as count from transactions");
@@ -2484,7 +2500,7 @@ async function startServer() {
     });
   });
 
-  app.get("/api/admin/reports", requireAdmin, async (req, res) => {
+  app.get("/api/admin/reports", requireStaffOrAdmin, async (req, res) => {
     const days = Number(req.query.days || 30);
     const threshold = new Date();
     threshold.setDate(threshold.getDate() - (Number.isFinite(days) ? days : 30));
