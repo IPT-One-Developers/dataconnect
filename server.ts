@@ -354,11 +354,12 @@ async function ensureExtendedSchema() {
          id uuid primary key default gen_random_uuid(),
          name text not null,
          description text not null default '',
-         data_cap_gb integer,
-         day_cap_gb integer,
-         night_cap_gb integer,
+         data_cap_gb numeric(12,2),
+         day_cap_gb numeric(12,2),
+         night_cap_gb numeric(12,2),
          speed_mbps integer,
          network text not null default 'MTN',
+         fup text not null default '',
          price numeric(12,2) not null check (price >= 0),
          duration_days integer not null check (duration_days > 0),
          is_active boolean not null default true,
@@ -369,9 +370,14 @@ async function ensureExtendedSchema() {
     ).catch(() => {});
     await pool.query(`alter table lte_packages add column if not exists order_index integer not null default 0;`).catch(() => {});
     await pool.query(`alter table lte_packages add column if not exists network text not null default 'MTN';`).catch(() => {});
-    await pool.query(`alter table lte_packages add column if not exists day_cap_gb integer;`).catch(() => {});
-    await pool.query(`alter table lte_packages add column if not exists night_cap_gb integer;`).catch(() => {});
+    await pool.query(`alter table lte_packages add column if not exists fup text not null default '';`).catch(() => {});
+    await pool.query(`alter table lte_packages add column if not exists day_cap_gb numeric(12,2);`).catch(() => {});
+    await pool.query(`alter table lte_packages add column if not exists night_cap_gb numeric(12,2);`).catch(() => {});
+    await pool.query(`alter table lte_packages alter column data_cap_gb type numeric(12,2) using data_cap_gb::numeric(12,2);`).catch(() => {});
+    await pool.query(`alter table lte_packages alter column day_cap_gb type numeric(12,2) using day_cap_gb::numeric(12,2);`).catch(() => {});
+    await pool.query(`alter table lte_packages alter column night_cap_gb type numeric(12,2) using night_cap_gb::numeric(12,2);`).catch(() => {});
     await pool.query(`update lte_packages set network = 'MTN' where network is null or btrim(network) = '';`).catch(() => {});
+    await pool.query(`update lte_packages set fup = '' where fup is null;`).catch(() => {});
     await pool.query("create index if not exists lte_packages_is_active_idx on lte_packages(is_active)").catch(() => {});
     await pool.query("create index if not exists lte_packages_order_index_idx on lte_packages(order_index)").catch(() => {});
     await pool.query(
@@ -1359,7 +1365,7 @@ async function startServer() {
       const activeOnlyQuery = String(req.query.activeOnly || "false") === "true";
       const activeOnly = req.user?.role === "admin" ? activeOnlyQuery : true;
       const { rows } = await pool.query(
-        `select id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index
+        `select id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, fup, price, duration_days, is_active, order_index
          from lte_packages
          where ($1::boolean = false) or (is_active = true)
          order by order_index asc, created_at desc`,
@@ -1375,6 +1381,7 @@ async function startServer() {
           nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
           speedMbps: p.speed_mbps === null ? null : Number(p.speed_mbps),
           network: p.network ? String(p.network) : "MTN",
+          fup: String(p.fup || ""),
           price: Number(p.price),
           durationDays: Number(p.duration_days),
           isActive: p.is_active,
@@ -1394,9 +1401,11 @@ async function startServer() {
   app.post("/api/admin/lte-packages", requireAdmin, async (req, res) => {
     try {
       await ensureExtendedSchema().catch(() => {});
+      const round2 = (n: number) => Math.round(n * 100) / 100;
       const payload = {
         name: String(req.body?.name || "").trim(),
         description: String(req.body?.description || "").trim(),
+        fup: String(req.body?.fup || "").trim(),
         dataCapGB: parseNullableNumber(req.body?.dataCapGB),
         dayCapGB: parseNullableNumber(req.body?.dayCapGB),
         nightCapGB: parseNullableNumber(req.body?.nightCapGB),
@@ -1417,18 +1426,19 @@ async function startServer() {
       if (!["MTN", "Vodacom", "Telkom"].includes(payload.network)) return res.status(400).json({ error: "invalid_input" });
 
       const { rows } = await pool.query(
-        `insert into lte_packages (name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index)
+        `insert into lte_packages (name, description, fup, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index)
          values (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
            (select coalesce(max(order_index), 0) + 1 from lte_packages)
          )
-         returning id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
+         returning id, name, description, fup, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
         [
           payload.name,
           payload.description,
-          payload.dataCapGB === null ? null : Math.round(payload.dataCapGB),
-          payload.dayCapGB === null ? null : Math.round(payload.dayCapGB),
-          payload.nightCapGB === null ? null : Math.round(payload.nightCapGB),
+          payload.fup,
+          payload.dataCapGB === null ? null : round2(payload.dataCapGB),
+          payload.dayCapGB === null ? null : round2(payload.dayCapGB),
+          payload.nightCapGB === null ? null : round2(payload.nightCapGB),
           payload.speedMbps === null ? null : Math.round(payload.speedMbps),
           payload.network,
           payload.price,
@@ -1442,6 +1452,7 @@ async function startServer() {
           id: p.id,
           name: p.name,
           description: p.description,
+          fup: String(p.fup || ""),
           dataCapGB: p.data_cap_gb === null ? null : Number(p.data_cap_gb),
           dayCapGB: p.day_cap_gb === null ? null : Number(p.day_cap_gb),
           nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
@@ -1463,9 +1474,11 @@ async function startServer() {
     try {
       await ensureExtendedSchema().catch(() => {});
       const id = String(req.params.id);
+      const round2 = (n: number) => Math.round(n * 100) / 100;
       const payload = {
         name: String(req.body?.name || "").trim(),
         description: String(req.body?.description || "").trim(),
+        fup: String(req.body?.fup || "").trim(),
         dataCapGB: parseNullableNumber(req.body?.dataCapGB),
         dayCapGB: parseNullableNumber(req.body?.dayCapGB),
         nightCapGB: parseNullableNumber(req.body?.nightCapGB),
@@ -1487,15 +1500,16 @@ async function startServer() {
 
       const { rows } = await pool.query(
         `update lte_packages
-         set name = $1, description = $2, data_cap_gb = $3, day_cap_gb = $4, night_cap_gb = $5, speed_mbps = $6, network = $7, price = $8, duration_days = $9, is_active = $10, updated_at = now()
-         where id = $11
-         returning id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
+         set name = $1, description = $2, fup = $3, data_cap_gb = $4, day_cap_gb = $5, night_cap_gb = $6, speed_mbps = $7, network = $8, price = $9, duration_days = $10, is_active = $11, updated_at = now()
+         where id = $12
+         returning id, name, description, fup, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
         [
           payload.name,
           payload.description,
-          payload.dataCapGB === null ? null : Math.round(payload.dataCapGB),
-          payload.dayCapGB === null ? null : Math.round(payload.dayCapGB),
-          payload.nightCapGB === null ? null : Math.round(payload.nightCapGB),
+          payload.fup,
+          payload.dataCapGB === null ? null : round2(payload.dataCapGB),
+          payload.dayCapGB === null ? null : round2(payload.dayCapGB),
+          payload.nightCapGB === null ? null : round2(payload.nightCapGB),
           payload.speedMbps === null ? null : Math.round(payload.speedMbps),
           payload.network,
           payload.price,
@@ -1511,6 +1525,7 @@ async function startServer() {
           id: p.id,
           name: p.name,
           description: p.description,
+          fup: String(p.fup || ""),
           dataCapGB: p.data_cap_gb === null ? null : Number(p.data_cap_gb),
           dayCapGB: p.day_cap_gb === null ? null : Number(p.day_cap_gb),
           nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
@@ -1536,7 +1551,7 @@ async function startServer() {
       const { rows } = await pool.query(
         `update lte_packages set is_active = $1, updated_at = now()
          where id = $2
-         returning id, name, description, data_cap_gb, speed_mbps, price, duration_days, is_active, order_index`,
+         returning id, name, description, fup, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
         [isActive, id]
       );
       if (!rows[0]) return res.status(404).json({ error: "not_found" });
@@ -1546,8 +1561,12 @@ async function startServer() {
           id: p.id,
           name: p.name,
           description: p.description,
+          fup: String(p.fup || ""),
           dataCapGB: p.data_cap_gb === null ? null : Number(p.data_cap_gb),
+          dayCapGB: p.day_cap_gb === null ? null : Number(p.day_cap_gb),
+          nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
           speedMbps: p.speed_mbps === null ? null : Number(p.speed_mbps),
+          network: p.network ? String(p.network) : "MTN",
           price: Number(p.price),
           durationDays: Number(p.duration_days),
           isActive: p.is_active,

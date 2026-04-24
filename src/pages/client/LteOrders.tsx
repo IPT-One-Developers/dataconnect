@@ -157,9 +157,18 @@ export default function ClientLteOrders() {
                 {pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}
                 <span className="text-sm font-normal ml-1 text-slate-500">{pkg.durationDays} Days</span>
               </h3>
-              <p className="text-sm text-slate-600">{pkg.speedMbps === null ? "-" : `${pkg.speedMbps} Mbps`}</p>
+              {pkg.speedMbps === null || pkg.speedMbps === undefined ? null : (
+                <p className="text-sm text-slate-600">{`${pkg.speedMbps} Mbps`}</p>
+              )}
               <p className="text-lg font-bold text-slate-800 mb-2 mt-2">R {Number(pkg.price).toFixed(2)}</p>
-              <p className="text-[10px] text-slate-400 mb-4 h-8">{pkg.description}</p>
+              {String(pkg.description || "").trim() ? (
+                <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
+              ) : null}
+              {String(pkg.fup || "").trim() ? (
+                <p className="text-[10px] text-slate-500 mb-4">{`FUP: ${String(pkg.fup || "").trim()}`}</p>
+              ) : (
+                <div className="mb-4" />
+              )}
               <button
                 className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
                 onClick={() => {

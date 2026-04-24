@@ -17,10 +17,12 @@ export default function AdminLtePackages() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
+    capType: "capped" as "capped" | "uncapped",
     dataCapGB: "",
     dayCapGB: "",
     nightCapGB: "",
     speedMbps: "",
+    fup: "",
     price: "",
     durationDays: "",
     network: "MTN",
@@ -68,10 +70,12 @@ export default function AdminLtePackages() {
     setFormData({
       name: "",
       description: "",
+      capType: "capped",
       dataCapGB: "",
       dayCapGB: "",
       nightCapGB: "",
       speedMbps: "",
+      fup: "",
       price: "",
       durationDays: "",
       network: "MTN",
@@ -85,10 +89,12 @@ export default function AdminLtePackages() {
     setFormData({
       name: pkg.name,
       description: pkg.description,
+      capType: pkg.dataCapGB === null ? "uncapped" : "capped",
       dataCapGB: pkg.dataCapGB === null ? "" : String(pkg.dataCapGB),
       dayCapGB: pkg.dayCapGB === null || pkg.dayCapGB === undefined ? "" : String(pkg.dayCapGB),
       nightCapGB: pkg.nightCapGB === null || pkg.nightCapGB === undefined ? "" : String(pkg.nightCapGB),
       speedMbps: pkg.speedMbps === null ? "" : String(pkg.speedMbps),
+      fup: String(pkg.fup || ""),
       price: pkg.price.toString(),
       durationDays: pkg.durationDays.toString(),
       network: pkg.network ? String(pkg.network) : "MTN",
@@ -101,9 +107,14 @@ export default function AdminLtePackages() {
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     try {
-      const dataCapGB = toNumberOrNull(formData.dataCapGB);
-      const dayCapGB = toNumberOrNull(formData.dayCapGB);
-      const nightCapGB = toNumberOrNull(formData.nightCapGB);
+      const isCapped = formData.capType === "capped";
+      const dataCapGB = isCapped ? toNumberOrNull(formData.dataCapGB) : null;
+      const dayCapGB = isCapped ? toNumberOrNull(formData.dayCapGB) : null;
+      const nightCapGB = isCapped ? toNumberOrNull(formData.nightCapGB) : null;
+      if (isCapped && dataCapGB === null) {
+        alert("Please enter a total cap for capped packages.");
+        return;
+      }
       if (dataCapGB !== null && Number.isNaN(dataCapGB)) {
         alert("Total cap must be a valid number (e.g. 12.5 or 12,5).");
         return;
@@ -120,6 +131,7 @@ export default function AdminLtePackages() {
       const payload = {
         name: formData.name,
         description: formData.description,
+        fup: formData.fup,
         dataCapGB,
         dayCapGB,
         nightCapGB,
@@ -285,7 +297,7 @@ export default function AdminLtePackages() {
 
       {isDialogOpen && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>{editingId ? "Edit Package" : "Add New Package"}</DialogTitle>
             </DialogHeader>
@@ -303,14 +315,26 @@ export default function AdminLtePackages() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label>Total Cap (GB)</Label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formData.dataCapGB}
-                    onChange={(e) => setFormData({ ...formData, dataCapGB: normalizeDecimalInput(e.target.value) })}
-                    placeholder="Leave blank for uncapped"
-                  />
+                  <Label>Cap Type</Label>
+                  <Select
+                    value={formData.capType}
+                    onValueChange={(v) => {
+                      const capType = v === "uncapped" ? "uncapped" : "capped";
+                      setFormData((prev) =>
+                        capType === "uncapped"
+                          ? { ...prev, capType, dataCapGB: "", dayCapGB: "", nightCapGB: "" }
+                          : { ...prev, capType }
+                      );
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select cap type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="capped">Capped</SelectItem>
+                      <SelectItem value="uncapped">Uncapped</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label>Speed (Mbps)</Label>
@@ -323,27 +347,51 @@ export default function AdminLtePackages() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Day Cap (GB)</Label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formData.dayCapGB}
-                    onChange={(e) => setFormData({ ...formData, dayCapGB: normalizeDecimalInput(e.target.value) })}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Night Cap (GB)</Label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formData.nightCapGB}
-                    onChange={(e) => setFormData({ ...formData, nightCapGB: normalizeDecimalInput(e.target.value) })}
-                    placeholder="Optional"
-                  />
-                </div>
+              {formData.capType === "capped" ? (
+                <>
+                  <div className="grid gap-2">
+                    <Label>Total Cap (GB)</Label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={formData.dataCapGB}
+                      onChange={(e) => setFormData({ ...formData, dataCapGB: normalizeDecimalInput(e.target.value) })}
+                      placeholder="e.g. 12.5"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Day Cap (GB)</Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={formData.dayCapGB}
+                        onChange={(e) => setFormData({ ...formData, dayCapGB: normalizeDecimalInput(e.target.value) })}
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Night Cap (GB)</Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={formData.nightCapGB}
+                        onChange={(e) => setFormData({ ...formData, nightCapGB: normalizeDecimalInput(e.target.value) })}
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : null}
+              <div className="grid gap-2">
+                <Label>Fair Usage Policy (FUP)</Label>
+                <textarea
+                  value={formData.fup}
+                  onChange={(e) => setFormData({ ...formData, fup: e.target.value })}
+                  placeholder="Optional"
+                  rows={4}
+                  className="w-full min-w-0 resize-y rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80"
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Price (ZAR)</Label>
