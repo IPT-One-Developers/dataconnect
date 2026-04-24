@@ -30,6 +30,10 @@ export default function ClientLteOrders() {
   const [confirmPaid, setConfirmPaid] = useState(false);
   const [paymentRef, setPaymentRef] = useState<string>("");
   const [payOrder, setPayOrder] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [search, setSearch] = useState("");
+  const [filterNetwork, setFilterNetwork] = useState<"all" | "MTN" | "Vodacom" | "Telkom" | "other">("all");
+  const [filterCapType, setFilterCapType] = useState<"all" | "capped" | "uncapped">("all");
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -147,102 +151,226 @@ export default function ClientLteOrders() {
       </div>
 
       {(() => {
-        const providers = ["MTN", "Vodacom", "Telkom"] as const;
-        type NetworkKey = "MTN" | "Vodacom" | "Telkom" | "other";
+        const providers = ["MTN", "Telkom", "Vodacom"] as const;
+        type NetworkKey = (typeof providers)[number] | "other";
+
         const getNetworkKey = (network: any): NetworkKey => {
-          const n = String(network || "").trim();
-          if (n === "MTN") return "MTN";
-          if (n === "Vodacom") return "Vodacom";
-          if (n === "Telkom") return "Telkom";
+          const n = String(network || "").trim().toLowerCase();
+          if (!n) return "other";
+          if (n.includes("mtn")) return "MTN";
+          if (n.includes("voda")) return "Vodacom";
+          if (n.includes("telkom") || n.includes("telokom")) return "Telkom";
           return "other";
         };
 
-        const byNetwork: Record<NetworkKey, any[]> = { MTN: [], Vodacom: [], Telkom: [], other: [] };
-        for (const pkg of packages) {
-          byNetwork[getNetworkKey(pkg.network)].push(pkg);
+        const normalizedSearch = search.trim().toLowerCase();
+        const getCapType = (pkg: any): "capped" | "uncapped" => (pkg?.dataCapGB === null ? "uncapped" : "capped");
+        const matchesFilters = (pkg: any) => {
+          const k = getNetworkKey(pkg.network);
+          if (filterNetwork !== "all" && k !== filterNetwork) return false;
+          if (filterCapType !== "all" && getCapType(pkg) !== filterCapType) return false;
+          if (normalizedSearch) {
+            const hay = `${String(pkg.name || "")} ${String(pkg.description || "")} ${String(pkg.fup || "")}`.toLowerCase();
+            if (!hay.includes(normalizedSearch)) return false;
+          }
+          return true;
+        };
+
+        const visiblePackages = packages.filter(matchesFilters);
+        const byNetwork: Record<NetworkKey, any[]> = { MTN: [], Telkom: [], Vodacom: [], other: [] };
+        for (const pkg of visiblePackages) {
+          const k = getNetworkKey(pkg.network);
+          byNetwork[k].push(pkg);
         }
 
-        const providerSections: { key: NetworkKey; title: string; items: any[] }[] = providers.map((p) => ({
-          key: p,
-          title: p,
-          items: byNetwork[p],
-        }));
-        const otherSection: { key: NetworkKey; title: string; items: any[] } = { key: "other", title: "Other", items: byNetwork.other };
-        const sections = [...providerSections, otherSection].filter((s) => s.items.length > 0) as { key: NetworkKey; title: string; items: any[] }[];
+        const allSections: { key: NetworkKey; title: string; items: any[] }[] = [
+          ...providers.map((p) => ({ key: p, title: `${p} LTE / 5G Packages`, items: byNetwork[p] })),
+          { key: "other", title: "Other LTE / 5G Packages", items: byNetwork.other },
+        ];
+        const sections = filterNetwork === "all" ? allSections : allSections.filter((s) => s.key === filterNetwork);
 
         const borders = ["border-t-indigo-500", "border-t-purple-500", "border-t-slate-800", "border-t-emerald-500"];
 
-        if (sections.length === 0) {
-          return <div className="text-sm text-slate-500">No LTE / 5G packages available right now.</div>;
-        }
-
         return (
-          <div className="space-y-8">
-            {sections.map((section) => (
-              <div key={section.key} className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
-                  <Badge variant="outline">{section.items.length}</Badge>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {section.items.map((pkg, i) => {
-                    const borderClass = borders[i % borders.length];
-                    return (
-                      <div key={pkg.id} className={`glass-card p-5 text-center border-t-4 flex flex-col ${borderClass}`}>
-                        <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">{pkg.name}</p>
-                        <h3 className="text-xl font-black my-2">{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</h3>
-                        <span className="text-sm font-normal text-slate-500">{pkg.durationDays} Days</span>
-                        {pkg.speedMbps === null || pkg.speedMbps === undefined ? null : (
-                          <p className="text-sm text-slate-600 mt-1">{`${pkg.speedMbps} Mbps`}</p>
-                        )}
-                        <p className="text-lg font-bold text-slate-800 mb-2 mt-2">R {Number(pkg.price).toFixed(2)}</p>
-                        {String(pkg.description || "").trim() ? (
-                          <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
-                        ) : null}
-                        {String(pkg.fup || "").trim() ? (
-                          <div className="text-[10px] text-slate-500 mb-4 whitespace-pre-wrap">
-                            <div className="font-semibold text-slate-600">FUP</div>
-                            <div>{String(pkg.fup || "").trim()}</div>
-                          </div>
-                        ) : (
-                          <div className="mb-4" />
-                        )}
-                        <button
-                          className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
-                          onClick={() => {
-                            const fullName = String(user?.name || "").trim();
-                            const parts = fullName ? fullName.split(/\s+/) : [];
-                            const firstName = parts[0] || "";
-                            const lastName = parts.slice(1).join(" ");
-                            setSelectedPkg(pkg);
-                            setPaymentRef(createPaymentRef());
-                            setPaymentMethod("");
-                            setConfirmPaid(false);
-                            setForm({
-                              firstName,
-                              lastName,
-                              email: String(user?.email || ""),
-                              mobile: String(user?.phone || ""),
-                              whatsapp: String(user?.phone || ""),
-                              line1: "",
-                              line2: "",
-                              suburb: "",
-                              city: "",
-                              province: "",
-                              postalCode: "",
-                              notes: "",
-                            });
-                          }}
-                        >
-                          Order LTE / 5G
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+          <div className="space-y-6">
+            <div className="glass-card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-2">
+                <Button variant={viewMode === "card" ? "default" : "outline"} size="sm" onClick={() => setViewMode("card")}>
+                  Card View
+                </Button>
+                <Button variant={viewMode === "list" ? "default" : "outline"} size="sm" onClick={() => setViewMode("list")}>
+                  List View
+                </Button>
               </div>
-            ))}
+
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end md:gap-3">
+                <Input
+                  placeholder="Search packages..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full md:w-[320px]"
+                />
+                <Select value={filterNetwork} onValueChange={(v) => setFilterNetwork(v as any)}>
+                  <SelectTrigger className="w-full md:w-[180px]">
+                    <SelectValue placeholder="Network" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Networks</SelectItem>
+                    <SelectItem value="MTN">MTN</SelectItem>
+                    <SelectItem value="Telkom">Telkom</SelectItem>
+                    <SelectItem value="Vodacom">Vodacom</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterCapType} onValueChange={(v) => setFilterCapType(v as any)}>
+                  <SelectTrigger className="w-full md:w-[180px]">
+                    <SelectValue placeholder="Cap Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Cap Types</SelectItem>
+                    <SelectItem value="capped">Capped</SelectItem>
+                    <SelectItem value="uncapped">Uncapped</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {visiblePackages.length === 0 ? (
+              <div className="text-sm text-slate-500">No LTE / 5G packages match your search/filter.</div>
+            ) : (
+              <div className="space-y-8">
+                {sections.map((section) => (
+                  <div key={section.key} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
+                      <Badge variant="outline">{section.items.length}</Badge>
+                    </div>
+
+                    {section.items.length === 0 ? (
+                      <div className="text-sm text-slate-500">No packages in this section.</div>
+                    ) : viewMode === "card" ? (
+                      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {section.items.map((pkg, i) => {
+                          const borderClass = borders[i % borders.length];
+                          return (
+                            <div key={pkg.id} className={`glass-card p-5 text-center border-t-4 flex flex-col ${borderClass}`}>
+                              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">{pkg.name}</p>
+                              <h3 className="text-xl font-black my-2">{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</h3>
+                              <span className="text-sm font-normal text-slate-500">{pkg.durationDays} Days</span>
+                              {pkg.speedMbps === null || pkg.speedMbps === undefined ? null : (
+                                <p className="text-sm text-slate-600 mt-1">{`${pkg.speedMbps} Mbps`}</p>
+                              )}
+                              <p className="text-lg font-bold text-slate-800 mb-2 mt-2">R {Number(pkg.price).toFixed(2)}</p>
+                              {String(pkg.description || "").trim() ? (
+                                <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
+                              ) : null}
+                              {String(pkg.fup || "").trim() ? (
+                                <div className="text-[10px] text-slate-500 mb-4 whitespace-pre-wrap">
+                                  <div className="font-semibold text-slate-600">FUP</div>
+                                  <div>{String(pkg.fup || "").trim()}</div>
+                                </div>
+                              ) : (
+                                <div className="mb-4" />
+                              )}
+                              <button
+                                className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
+                                onClick={() => {
+                                  const fullName = String(user?.name || "").trim();
+                                  const parts = fullName ? fullName.split(/\s+/) : [];
+                                  const firstName = parts[0] || "";
+                                  const lastName = parts.slice(1).join(" ");
+                                  setSelectedPkg(pkg);
+                                  setPaymentRef(createPaymentRef());
+                                  setPaymentMethod("");
+                                  setConfirmPaid(false);
+                                  setForm({
+                                    firstName,
+                                    lastName,
+                                    email: String(user?.email || ""),
+                                    mobile: String(user?.phone || ""),
+                                    whatsapp: String(user?.phone || ""),
+                                    line1: "",
+                                    line2: "",
+                                    suburb: "",
+                                    city: "",
+                                    province: "",
+                                    postalCode: "",
+                                    notes: "",
+                                  });
+                                }}
+                              >
+                                Order LTE / 5G
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="glass-card overflow-hidden">
+                        <Table>
+                          <TableHeader className="bg-slate-50/50">
+                            <TableRow>
+                              <TableHead>Package</TableHead>
+                              <TableHead>Cap</TableHead>
+                              <TableHead>Speed</TableHead>
+                              <TableHead>Price</TableHead>
+                              <TableHead className="text-right">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {section.items.map((pkg) => (
+                              <TableRow key={pkg.id}>
+                                <TableCell className="font-semibold text-slate-900">{pkg.name}</TableCell>
+                                <TableCell className="text-slate-800">
+                                  <div className="font-semibold">{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</div>
+                                  <span className="text-xs font-normal text-slate-500">{pkg.durationDays} Days</span>
+                                </TableCell>
+                                <TableCell className="text-slate-700">
+                                  {pkg.speedMbps === null || pkg.speedMbps === undefined ? "-" : `${pkg.speedMbps} Mbps`}
+                                </TableCell>
+                                <TableCell className="text-slate-900 font-semibold">R {Number(pkg.price).toFixed(2)}</TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      const fullName = String(user?.name || "").trim();
+                                      const parts = fullName ? fullName.split(/\s+/) : [];
+                                      const firstName = parts[0] || "";
+                                      const lastName = parts.slice(1).join(" ");
+                                      setSelectedPkg(pkg);
+                                      setPaymentRef(createPaymentRef());
+                                      setPaymentMethod("");
+                                      setConfirmPaid(false);
+                                      setForm({
+                                        firstName,
+                                        lastName,
+                                        email: String(user?.email || ""),
+                                        mobile: String(user?.phone || ""),
+                                        whatsapp: String(user?.phone || ""),
+                                        line1: "",
+                                        line2: "",
+                                        suburb: "",
+                                        city: "",
+                                        province: "",
+                                        postalCode: "",
+                                        notes: "",
+                                      });
+                                    }}
+                                  >
+                                    Order
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })()}
