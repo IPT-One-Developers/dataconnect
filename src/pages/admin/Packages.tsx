@@ -94,6 +94,23 @@ export default function AdminPackages() {
     }
   };
 
+  const deletePackage = async (pkg: any) => {
+    if (!pkg?.id) return;
+    if (!confirm(`Delete package "${pkg.name}"?`)) return;
+    try {
+      await api(`/api/admin/packages/${pkg.id}`, { method: "DELETE", body: JSON.stringify({}) });
+      loadData();
+    } catch (e: any) {
+      console.error(e);
+      const code = String(e?.code || e?.message || "");
+      if (code === "in_use") {
+        alert("This package cannot be deleted because it is referenced by existing orders.");
+        return;
+      }
+      alert(`Failed to delete package${code ? ` (${code})` : ""}.`);
+    }
+  };
+
   const reorder = async (next: any[]) => {
     setPackages(next);
     try {
@@ -178,6 +195,9 @@ export default function AdminPackages() {
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => toggleStatus(pkg.id, pkg.isActive)}>
                     Toggle Status
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => deletePackage(pkg)}>
+                    Delete
                   </Button>
                 </TableCell>
               </TableRow>

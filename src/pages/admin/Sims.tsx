@@ -15,6 +15,10 @@ export default function AdminSims() {
   const [users, setUsers] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [networkFilter, setNetworkFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ userId: '', iccid: '', phoneNumber: '', network: 'MTN', status: 'active' });
   const [isBalanceDialogOpen, setIsBalanceDialogOpen] = useState(false);
@@ -107,7 +111,34 @@ export default function AdminSims() {
     }
   };
 
-  const byoSims = sims.filter((s) => String(s?.network || "").toUpperCase() === "MTN" && String(s?.iccid || "").startsWith("99"));
+  const isByoSim = (s: any) => String(s?.network || "").toUpperCase() === "MTN" && String(s?.iccid || "").startsWith("99");
+  const isLteSim = (s: any) => /(^|\s)(lte|5g)(\s|$)/i.test(String(s?.network || "")) || /lte|5g/i.test(String(s?.network || ""));
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const applyFilters = (sim: any) => {
+    const matchesQuery =
+      normalizedQuery.length === 0 ||
+      String(sim?.userEmail || "").toLowerCase().includes(normalizedQuery) ||
+      String(sim?.phoneNumber || "").toLowerCase().includes(normalizedQuery) ||
+      String(sim?.iccid || "").toLowerCase().includes(normalizedQuery) ||
+      String(sim?.network || "").toLowerCase().includes(normalizedQuery);
+
+    const simNetwork = String(sim?.network || "");
+    const matchesNetwork =
+      networkFilter === "all" ||
+      (networkFilter === "lte" ? isLteSim(sim) : simNetwork.toLowerCase().startsWith(networkFilter.toLowerCase()));
+    const matchesStatus = statusFilter === "all" || String(sim?.status || "") === statusFilter;
+    const matchesType =
+      typeFilter === "all" ||
+      (typeFilter === "byo" ? isByoSim(sim) : typeFilter === "lte" ? isLteSim(sim) : !isByoSim(sim) && !isLteSim(sim));
+
+    return matchesQuery && matchesNetwork && matchesStatus && matchesType;
+  };
+
+  const byoSims = sims.filter((s) => isByoSim(s));
+  const filteredByoSims = byoSims.filter(applyFilters);
+  const activeLteSims = sims.filter((s) => isLteSim(s) && String(s?.status || "") === "active");
+  const filteredActiveLteSims = activeLteSims.filter(applyFilters);
+  const filteredSims = sims.filter(applyFilters);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -120,15 +151,137 @@ export default function AdminSims() {
       </div>
 
       <div className="glass-card p-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="flex-1">
+            <Label>Search</Label>
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by email, phone, ICCID, network..."
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-3 md:items-end">
+            <div className="grid gap-2">
+              <Label>Network</Label>
+              <Select value={networkFilter} onValueChange={setNetworkFilter}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="MTN">MTN</SelectItem>
+                  <SelectItem value="Vodacom">Vodacom</SelectItem>
+                  <SelectItem value="Telkom">Telkom</SelectItem>
+                  <SelectItem value="lte">LTE / 5G</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Type</Label>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="assigned">Assigned</SelectItem>
+                  <SelectItem value="byo">Bring Your Own</SelectItem>
+                  <SelectItem value="lte">LTE / 5G</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex items-end justify-between md:justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearchQuery("");
+                setNetworkFilter("all");
+                setStatusFilter("all");
+                setTypeFilter("all");
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+        <div className="mt-3 text-xs text-slate-500 font-semibold">
+          Showing {filteredSims.length} / {sims.length} SIMs
+        </div>
+      </div>
+
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">LTE / 5G SIM Cards</h3>
+            <p className="text-xs text-slate-500 mt-1">View and manage active LTE / 5G SIM cards.</p>
+          </div>
+          <div className="text-xs text-slate-500 font-semibold">{filteredActiveLteSims.length} SIMs</div>
+        </div>
+
+        {filteredActiveLteSims.length === 0 ? (
+          <div className="text-sm text-slate-500">No active LTE / 5G SIM cards found.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-slate-50/50">
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Phone Number</TableHead>
+                  <TableHead>ICCID</TableHead>
+                  <TableHead>Network</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredActiveLteSims.map((sim) => (
+                  <TableRow key={sim.id}>
+                    <TableCell className="font-medium">{sim.userEmail}</TableCell>
+                    <TableCell>{sim.phoneNumber}</TableCell>
+                    <TableCell className="text-xs text-mono">{sim.iccid}</TableCell>
+                    <TableCell>{sim.network}</TableCell>
+                    <TableCell>
+                      <Badge variant={sim.status === "active" ? "default" : "secondary"}>{sim.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => updateSimStatus(sim.id, sim.status)}>
+                          {sim.status === "active" ? "Deactivate" : "Activate"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      <div className="glass-card p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-bold text-slate-800">Bring Your Own SIM (MTN)</h3>
             <p className="text-xs text-slate-500 mt-1">Client-added MTN SIM cards used for Data Bundle orders only.</p>
           </div>
-          <div className="text-xs text-slate-500 font-semibold">{byoSims.length} SIMs</div>
+          <div className="text-xs text-slate-500 font-semibold">{filteredByoSims.length} SIMs</div>
         </div>
 
-        {byoSims.length === 0 ? (
+        {filteredByoSims.length === 0 ? (
           <div className="text-sm text-slate-500">No client-added MTN SIM cards yet.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -146,7 +299,7 @@ export default function AdminSims() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {byoSims.map((sim) => (
+                {filteredByoSims.map((sim) => (
                   <TableRow key={sim.id}>
                     <TableCell className="font-medium">{sim.userEmail}</TableCell>
                     <TableCell>{sim.phoneNumber}</TableCell>
@@ -197,7 +350,7 @@ export default function AdminSims() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sims.map(sim => (
+            {filteredSims.map(sim => (
               <TableRow key={sim.id}>
                 <TableCell className="font-medium">{sim.userEmail}</TableCell>
                 <TableCell>{sim.phoneNumber}</TableCell>

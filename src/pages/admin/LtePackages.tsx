@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import { Badge } from "../../../components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 
 export default function AdminLtePackages() {
   const [packages, setPackages] = useState<any[]>([]);
@@ -17,9 +18,12 @@ export default function AdminLtePackages() {
     name: "",
     description: "",
     dataCapGB: "",
+    dayCapGB: "",
+    nightCapGB: "",
     speedMbps: "",
     price: "",
     durationDays: "",
+    network: "MTN",
     isActive: true,
   });
 
@@ -51,7 +55,18 @@ export default function AdminLtePackages() {
   }, []);
 
   const openCreateDialog = () => {
-    setFormData({ name: "", description: "", dataCapGB: "", speedMbps: "", price: "", durationDays: "", isActive: true });
+    setFormData({
+      name: "",
+      description: "",
+      dataCapGB: "",
+      dayCapGB: "",
+      nightCapGB: "",
+      speedMbps: "",
+      price: "",
+      durationDays: "",
+      network: "MTN",
+      isActive: true,
+    });
     setEditingId(null);
     setIsDialogOpen(true);
   };
@@ -61,9 +76,12 @@ export default function AdminLtePackages() {
       name: pkg.name,
       description: pkg.description,
       dataCapGB: pkg.dataCapGB === null ? "" : String(pkg.dataCapGB),
+      dayCapGB: pkg.dayCapGB === null || pkg.dayCapGB === undefined ? "" : String(pkg.dayCapGB),
+      nightCapGB: pkg.nightCapGB === null || pkg.nightCapGB === undefined ? "" : String(pkg.nightCapGB),
       speedMbps: pkg.speedMbps === null ? "" : String(pkg.speedMbps),
       price: pkg.price.toString(),
       durationDays: pkg.durationDays.toString(),
+      network: pkg.network ? String(pkg.network) : "MTN",
       isActive: pkg.isActive,
     });
     setEditingId(pkg.id);
@@ -77,7 +95,10 @@ export default function AdminLtePackages() {
         name: formData.name,
         description: formData.description,
         dataCapGB: formData.dataCapGB === "" ? null : Number(formData.dataCapGB),
+        dayCapGB: formData.dayCapGB === "" ? null : Number(formData.dayCapGB),
+        nightCapGB: formData.nightCapGB === "" ? null : Number(formData.nightCapGB),
         speedMbps: formData.speedMbps === "" ? null : Number(formData.speedMbps),
+        network: formData.network,
         price: Number(formData.price),
         durationDays: Number(formData.durationDays),
         isActive: formData.isActive,
@@ -108,6 +129,23 @@ export default function AdminLtePackages() {
       loadData();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const deletePackage = async (pkg: any) => {
+    if (!pkg?.id) return;
+    if (!confirm(`Delete LTE / 5G package "${pkg.name}"?`)) return;
+    try {
+      await api(`/api/admin/lte-packages/${pkg.id}`, { method: "DELETE", body: JSON.stringify({}) });
+      loadData();
+    } catch (e: any) {
+      console.error(e);
+      const code = String(e?.code || e?.message || "");
+      if (code === "in_use") {
+        alert("This package cannot be deleted because it is referenced by existing orders.");
+        return;
+      }
+      alert(`Failed to delete package${code ? ` (${code})` : ""}.`);
     }
   };
 
@@ -208,6 +246,9 @@ export default function AdminLtePackages() {
                     <Button variant="outline" size="sm" onClick={() => toggleStatus(pkg.id, pkg.isActive)}>
                       Toggle Status
                     </Button>
+                    <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => deletePackage(pkg)}>
+                      Delete
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))
@@ -256,6 +297,28 @@ export default function AdminLtePackages() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Day Cap (GB)</Label>
+                  <Input
+                    type="number"
+                    step="1"
+                    value={formData.dayCapGB}
+                    onChange={(e) => setFormData({ ...formData, dayCapGB: e.target.value })}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Night Cap (GB)</Label>
+                  <Input
+                    type="number"
+                    step="1"
+                    value={formData.nightCapGB}
+                    onChange={(e) => setFormData({ ...formData, nightCapGB: e.target.value })}
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
               <div className="grid gap-2">
                 <Label>Price (ZAR)</Label>
                 <Input
@@ -274,6 +337,19 @@ export default function AdminLtePackages() {
                   onChange={(e) => setFormData({ ...formData, durationDays: e.target.value })}
                   required
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label>Network</Label>
+                <Select value={formData.network} onValueChange={(v) => setFormData({ ...formData, network: v })}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select network..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MTN">MTN</SelectItem>
+                    <SelectItem value="Vodacom">Vodacom</SelectItem>
+                    <SelectItem value="Telkom">Telkom</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <DialogFooter className="mt-4">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>

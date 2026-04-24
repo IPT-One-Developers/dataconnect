@@ -355,7 +355,10 @@ async function ensureExtendedSchema() {
          name text not null,
          description text not null default '',
          data_cap_gb integer,
+         day_cap_gb integer,
+         night_cap_gb integer,
          speed_mbps integer,
+         network text not null default 'MTN',
          price numeric(12,2) not null check (price >= 0),
          duration_days integer not null check (duration_days > 0),
          is_active boolean not null default true,
@@ -365,6 +368,10 @@ async function ensureExtendedSchema() {
        );`
     ).catch(() => {});
     await pool.query(`alter table lte_packages add column if not exists order_index integer not null default 0;`).catch(() => {});
+    await pool.query(`alter table lte_packages add column if not exists network text not null default 'MTN';`).catch(() => {});
+    await pool.query(`alter table lte_packages add column if not exists day_cap_gb integer;`).catch(() => {});
+    await pool.query(`alter table lte_packages add column if not exists night_cap_gb integer;`).catch(() => {});
+    await pool.query(`update lte_packages set network = 'MTN' where network is null or btrim(network) = '';`).catch(() => {});
     await pool.query("create index if not exists lte_packages_is_active_idx on lte_packages(is_active)").catch(() => {});
     await pool.query("create index if not exists lte_packages_order_index_idx on lte_packages(order_index)").catch(() => {});
     await pool.query(
@@ -1304,6 +1311,28 @@ async function startServer() {
     });
   });
 
+  app.delete("/api/admin/packages/:id", requireAdmin, async (req, res) => {
+    try {
+      const packageId = String(req.params.id);
+      const { rows } = await pool.query("select id from data_packages where id = $1 limit 1", [packageId]);
+      if (!rows[0]) return res.status(404).json({ error: "not_found" });
+
+      try {
+        await pool.query("delete from data_packages where id = $1", [packageId]);
+        res.json({ ok: true });
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        if (code === "23503") {
+          return res.status(409).json({ error: "in_use" });
+        }
+        throw e;
+      }
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "delete_failed" });
+    }
+  });
+
   app.post("/api/admin/packages/reorder", requireAdmin, async (req, res) => {
     const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
     if (ids.length === 0) return res.status(400).json({ error: "invalid_input" });
@@ -1330,7 +1359,7 @@ async function startServer() {
       const activeOnlyQuery = String(req.query.activeOnly || "false") === "true";
       const activeOnly = req.user?.role === "admin" ? activeOnlyQuery : true;
       const { rows } = await pool.query(
-        `select id, name, description, data_cap_gb, speed_mbps, price, duration_days, is_active, order_index
+        `select id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index
          from lte_packages
          where ($1::boolean = false) or (is_active = true)
          order by order_index asc, created_at desc`,
@@ -1342,7 +1371,10 @@ async function startServer() {
           name: p.name,
           description: p.description,
           dataCapGB: p.data_cap_gb === null ? null : Number(p.data_cap_gb),
+          dayCapGB: p.day_cap_gb === null ? null : Number(p.day_cap_gb),
+          nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
           speedMbps: p.speed_mbps === null ? null : Number(p.speed_mbps),
+          network: p.network ? String(p.network) : "MTN",
           price: Number(p.price),
           durationDays: Number(p.duration_days),
           isActive: p.is_active,
@@ -1366,7 +1398,10 @@ async function startServer() {
         name: String(req.body?.name || "").trim(),
         description: String(req.body?.description || "").trim(),
         dataCapGB: parseNullableNumber(req.body?.dataCapGB),
+        dayCapGB: parseNullableNumber(req.body?.dayCapGB),
+        nightCapGB: parseNullableNumber(req.body?.nightCapGB),
         speedMbps: parseNullableNumber(req.body?.speedMbps),
+        network: String(req.body?.network || "MTN").trim(),
         price: parseNullableNumber(req.body?.price),
         durationDays: parseNullableNumber(req.body?.durationDays),
         isActive: Boolean(req.body?.isActive),
@@ -1376,20 +1411,26 @@ async function startServer() {
       if (!isFiniteNumber(payload.price) || payload.price < 0) return res.status(400).json({ error: "invalid_input" });
       if (!isFiniteNumber(payload.durationDays) || payload.durationDays <= 0) return res.status(400).json({ error: "invalid_input" });
       if (payload.dataCapGB !== null && payload.dataCapGB < 0) return res.status(400).json({ error: "invalid_input" });
+      if (payload.dayCapGB !== null && payload.dayCapGB < 0) return res.status(400).json({ error: "invalid_input" });
+      if (payload.nightCapGB !== null && payload.nightCapGB < 0) return res.status(400).json({ error: "invalid_input" });
       if (payload.speedMbps !== null && payload.speedMbps < 0) return res.status(400).json({ error: "invalid_input" });
+      if (!["MTN", "Vodacom", "Telkom"].includes(payload.network)) return res.status(400).json({ error: "invalid_input" });
 
       const { rows } = await pool.query(
-        `insert into lte_packages (name, description, data_cap_gb, speed_mbps, price, duration_days, is_active, order_index)
+        `insert into lte_packages (name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index)
          values (
-           $1, $2, $3, $4, $5, $6, $7,
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
            (select coalesce(max(order_index), 0) + 1 from lte_packages)
          )
-         returning id, name, description, data_cap_gb, speed_mbps, price, duration_days, is_active, order_index`,
+         returning id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
         [
           payload.name,
           payload.description,
           payload.dataCapGB === null ? null : Math.round(payload.dataCapGB),
+          payload.dayCapGB === null ? null : Math.round(payload.dayCapGB),
+          payload.nightCapGB === null ? null : Math.round(payload.nightCapGB),
           payload.speedMbps === null ? null : Math.round(payload.speedMbps),
+          payload.network,
           payload.price,
           Math.round(payload.durationDays),
           payload.isActive,
@@ -1402,7 +1443,10 @@ async function startServer() {
           name: p.name,
           description: p.description,
           dataCapGB: p.data_cap_gb === null ? null : Number(p.data_cap_gb),
+          dayCapGB: p.day_cap_gb === null ? null : Number(p.day_cap_gb),
+          nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
           speedMbps: p.speed_mbps === null ? null : Number(p.speed_mbps),
+          network: p.network ? String(p.network) : "MTN",
           price: Number(p.price),
           durationDays: Number(p.duration_days),
           isActive: p.is_active,
@@ -1423,7 +1467,10 @@ async function startServer() {
         name: String(req.body?.name || "").trim(),
         description: String(req.body?.description || "").trim(),
         dataCapGB: parseNullableNumber(req.body?.dataCapGB),
+        dayCapGB: parseNullableNumber(req.body?.dayCapGB),
+        nightCapGB: parseNullableNumber(req.body?.nightCapGB),
         speedMbps: parseNullableNumber(req.body?.speedMbps),
+        network: String(req.body?.network || "MTN").trim(),
         price: parseNullableNumber(req.body?.price),
         durationDays: parseNullableNumber(req.body?.durationDays),
         isActive: Boolean(req.body?.isActive),
@@ -1433,18 +1480,24 @@ async function startServer() {
       if (!isFiniteNumber(payload.price) || payload.price < 0) return res.status(400).json({ error: "invalid_input" });
       if (!isFiniteNumber(payload.durationDays) || payload.durationDays <= 0) return res.status(400).json({ error: "invalid_input" });
       if (payload.dataCapGB !== null && payload.dataCapGB < 0) return res.status(400).json({ error: "invalid_input" });
+      if (payload.dayCapGB !== null && payload.dayCapGB < 0) return res.status(400).json({ error: "invalid_input" });
+      if (payload.nightCapGB !== null && payload.nightCapGB < 0) return res.status(400).json({ error: "invalid_input" });
       if (payload.speedMbps !== null && payload.speedMbps < 0) return res.status(400).json({ error: "invalid_input" });
+      if (!["MTN", "Vodacom", "Telkom"].includes(payload.network)) return res.status(400).json({ error: "invalid_input" });
 
       const { rows } = await pool.query(
         `update lte_packages
-         set name = $1, description = $2, data_cap_gb = $3, speed_mbps = $4, price = $5, duration_days = $6, is_active = $7, updated_at = now()
-         where id = $8
-         returning id, name, description, data_cap_gb, speed_mbps, price, duration_days, is_active, order_index`,
+         set name = $1, description = $2, data_cap_gb = $3, day_cap_gb = $4, night_cap_gb = $5, speed_mbps = $6, network = $7, price = $8, duration_days = $9, is_active = $10, updated_at = now()
+         where id = $11
+         returning id, name, description, data_cap_gb, day_cap_gb, night_cap_gb, speed_mbps, network, price, duration_days, is_active, order_index`,
         [
           payload.name,
           payload.description,
           payload.dataCapGB === null ? null : Math.round(payload.dataCapGB),
+          payload.dayCapGB === null ? null : Math.round(payload.dayCapGB),
+          payload.nightCapGB === null ? null : Math.round(payload.nightCapGB),
           payload.speedMbps === null ? null : Math.round(payload.speedMbps),
+          payload.network,
           payload.price,
           Math.round(payload.durationDays),
           payload.isActive,
@@ -1459,7 +1512,10 @@ async function startServer() {
           name: p.name,
           description: p.description,
           dataCapGB: p.data_cap_gb === null ? null : Number(p.data_cap_gb),
+          dayCapGB: p.day_cap_gb === null ? null : Number(p.day_cap_gb),
+          nightCapGB: p.night_cap_gb === null ? null : Number(p.night_cap_gb),
           speedMbps: p.speed_mbps === null ? null : Number(p.speed_mbps),
+          network: p.network ? String(p.network) : "MTN",
           price: Number(p.price),
           durationDays: Number(p.duration_days),
           isActive: p.is_active,
@@ -1501,6 +1557,29 @@ async function startServer() {
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "update_failed" });
+    }
+  });
+
+  app.delete("/api/admin/lte-packages/:id", requireAdmin, async (req, res) => {
+    try {
+      await ensureExtendedSchema().catch(() => {});
+      const id = String(req.params.id);
+      const { rows } = await pool.query("select id from lte_packages where id = $1 limit 1", [id]);
+      if (!rows[0]) return res.status(404).json({ error: "not_found" });
+
+      try {
+        await pool.query("delete from lte_packages where id = $1", [id]);
+        res.json({ ok: true });
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        if (code === "23503") {
+          return res.status(409).json({ error: "in_use" });
+        }
+        throw e;
+      }
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "delete_failed" });
     }
   });
 
