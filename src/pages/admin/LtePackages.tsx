@@ -15,6 +15,11 @@ export default function AdminLtePackages() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const fupRef = useRef<HTMLTextAreaElement | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "card">("list");
+  const [search, setSearch] = useState("");
+  const [filterNetwork, setFilterNetwork] = useState<"all" | "MTN" | "Vodacom" | "Telkom" | "other">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
+  const [filterCapType, setFilterCapType] = useState<"all" | "capped" | "uncapped">("all");
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -256,16 +261,85 @@ export default function AdminLtePackages() {
     }
   };
 
-  const handleDropOn = async (targetId: string, draggedId: string | null) => {
+  const providers = ["MTN", "Vodacom", "Telkom"] as const;
+
+  const getNetworkKey = (network: any): "MTN" | "Vodacom" | "Telkom" | "other" => {
+    const n = String(network || "").trim();
+    if (n === "MTN") return "MTN";
+    if (n === "Vodacom") return "Vodacom";
+    if (n === "Telkom") return "Telkom";
+    return "other";
+  };
+
+  const getCapType = (pkg: any): "capped" | "uncapped" => (pkg?.dataCapGB === null ? "uncapped" : "capped");
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const canReorder =
+    viewMode === "list" && normalizedSearch === "" && filterNetwork === "all" && filterStatus === "all" && filterCapType === "all";
+
+  const matchesFilters = (pkg: any) => {
+    const net = getNetworkKey(pkg.network);
+    if (filterNetwork !== "all" && net !== filterNetwork) return false;
+    if (filterStatus !== "all") {
+      const desired = filterStatus === "active";
+      if (Boolean(pkg.isActive) !== desired) return false;
+    }
+    if (filterCapType !== "all" && getCapType(pkg) !== filterCapType) return false;
+    if (normalizedSearch) {
+      const hay = `${String(pkg.name || "")} ${String(pkg.description || "")} ${String(pkg.fup || "")}`.toLowerCase();
+      if (!hay.includes(normalizedSearch)) return false;
+    }
+    return true;
+  };
+
+  const visiblePackages = packages.filter(matchesFilters);
+
+  const buildSections = () => {
+    const byNetwork: Record<string, any[]> = {};
+    for (const p of visiblePackages) {
+      const k = getNetworkKey(p.network);
+      if (!byNetwork[k]) byNetwork[k] = [];
+      byNetwork[k].push(p);
+    }
+    const sections: { key: "MTN" | "Vodacom" | "Telkom" | "other"; title: string; items: any[] }[] = [];
+    for (const n of providers) {
+      const k = n;
+      const items = byNetwork[k] || [];
+      sections.push({ key: k, title: n, items });
+    }
+    const otherItems = byNetwork.other || [];
+    if (otherItems.length > 0) sections.push({ key: "other", title: "Other", items: otherItems });
+    return sections.filter((s) => s.items.length > 0);
+  };
+
+  const sections = buildSections();
+
+  const handleDropOnInSection = async (sectionKey: "MTN" | "Vodacom" | "Telkom" | "other", targetId: string, draggedId: string | null) => {
+    if (!canReorder) return;
     if (!draggedId || draggedId === targetId) return;
+
     const current = [...packages];
-    const fromIndex = current.findIndex((p) => p.id === draggedId);
-    const toIndex = current.findIndex((p) => p.id === targetId);
+    const providerIds = current.filter((p) => getNetworkKey(p.network) === sectionKey).map((p) => p.id);
+    const fromIndex = providerIds.indexOf(draggedId);
+    const toIndex = providerIds.indexOf(targetId);
     if (fromIndex < 0 || toIndex < 0) return;
-    const moved = current.splice(fromIndex, 1)[0];
-    current.splice(toIndex, 0, moved);
+
+    const nextProviderIds = [...providerIds];
+    const [moved] = nextProviderIds.splice(fromIndex, 1);
+    nextProviderIds.splice(toIndex, 0, moved);
+
+    const nextByNetwork: Record<string, any[]> = { MTN: [], Vodacom: [], Telkom: [], other: [] };
+    for (const p of current) {
+      nextByNetwork[getNetworkKey(p.network)].push(p);
+    }
+
+    const byId = new Map<string, any>();
+    for (const p of nextByNetwork[sectionKey]) byId.set(p.id, p);
+    nextByNetwork[sectionKey] = nextProviderIds.map((id) => byId.get(id)).filter(Boolean);
+
+    const next = [...nextByNetwork.MTN, ...nextByNetwork.Vodacom, ...nextByNetwork.Telkom, ...nextByNetwork.other];
     setDraggingId(null);
-    await reorder(current);
+    await reorder(next);
   };
 
   if (loading) return <div className="p-8">Loading packages...</div>;
@@ -283,72 +357,194 @@ export default function AdminLtePackages() {
       </div>
 
       <div className="glass-card overflow-hidden">
-        <Table>
-          <TableHeader className="bg-slate-50/50">
-            <TableRow>
-              <TableHead className="w-10"></TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Cap</TableHead>
-              <TableHead>Speed</TableHead>
-              <TableHead>Price (R)</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {packages.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-10 text-slate-500 text-sm">
-                  No LTE / 5G packages yet.
-                </TableCell>
-              </TableRow>
+        <div className="p-4 border-b border-slate-100 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <Button variant={viewMode === "list" ? "default" : "outline"} size="sm" onClick={() => setViewMode("list")}>
+              List View
+            </Button>
+            <Button variant={viewMode === "card" ? "default" : "outline"} size="sm" onClick={() => setViewMode("card")}>
+              Card View
+            </Button>
+            {canReorder ? (
+              <Badge variant="outline">Drag to reorder</Badge>
             ) : (
-              packages.map((pkg) => (
-                <TableRow
-                  key={pkg.id}
-                  draggable
-                  onDragStart={(e) => {
-                    setDraggingId(pkg.id);
-                    e.dataTransfer.setData("text/plain", pkg.id);
-                    e.dataTransfer.effectAllowed = "move";
-                  }}
-                  onDragEnd={() => setDraggingId(null)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const dragged = e.dataTransfer.getData("text/plain") || draggingId;
-                    handleDropOn(pkg.id, dragged);
-                  }}
-                  className={draggingId === pkg.id ? "opacity-60" : ""}
-                >
-                  <TableCell className="text-slate-400 select-none cursor-grab">≡</TableCell>
-                  <TableCell className="font-medium">{pkg.name}</TableCell>
-                  <TableCell className="text-xs text-slate-600 max-w-[340px] truncate">{pkg.description || "-"}</TableCell>
-                  <TableCell>{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</TableCell>
-                  <TableCell>{pkg.speedMbps === null ? "-" : `${pkg.speedMbps} Mbps`}</TableCell>
-                  <TableCell>R{Number(pkg.price).toFixed(2)}</TableCell>
-                  <TableCell>{Number(pkg.durationDays)} Days</TableCell>
-                  <TableCell>
-                    <Badge variant={pkg.isActive ? "default" : "secondary"}>{pkg.isActive ? "Active" : "Inactive"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditDialog(pkg)}>
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => toggleStatus(pkg.id, pkg.isActive)}>
-                      Toggle Status
-                    </Button>
-                    <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => deletePackage(pkg)}>
-                      Delete
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+              <Badge variant="secondary">Reorder disabled while filtering</Badge>
             )}
-          </TableBody>
-        </Table>
+          </div>
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end md:gap-3">
+            <Input
+              placeholder="Search by name, description, or FUP..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full md:w-[320px]"
+            />
+            <Select value={filterNetwork} onValueChange={(v) => setFilterNetwork(v as any)}>
+              <SelectTrigger className="w-full md:w-[160px]">
+                <SelectValue placeholder="Network" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Networks</SelectItem>
+                <SelectItem value="MTN">MTN</SelectItem>
+                <SelectItem value="Vodacom">Vodacom</SelectItem>
+                <SelectItem value="Telkom">Telkom</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
+              <SelectTrigger className="w-full md:w-[160px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterCapType} onValueChange={(v) => setFilterCapType(v as any)}>
+              <SelectTrigger className="w-full md:w-[170px]">
+                <SelectValue placeholder="Cap Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Cap Types</SelectItem>
+                <SelectItem value="capped">Capped</SelectItem>
+                <SelectItem value="uncapped">Uncapped</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {sections.length === 0 ? (
+          <div className="py-10 text-center text-slate-500 text-sm">No LTE / 5G packages match your search/filter.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {sections.map((section) => (
+              <div key={section.key} className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
+                    <Badge variant="outline">{section.items.length}</Badge>
+                  </div>
+                </div>
+
+                {viewMode === "list" ? (
+                  <div className="overflow-hidden rounded-lg border border-slate-100">
+                    <Table>
+                      <TableHeader className="bg-slate-50/50">
+                        <TableRow>
+                          <TableHead className="w-10"></TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Cap</TableHead>
+                          <TableHead>Speed</TableHead>
+                          <TableHead>Price (R)</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {section.items.map((pkg) => (
+                          <TableRow
+                            key={pkg.id}
+                            draggable={canReorder}
+                            onDragStart={(e) => {
+                              if (!canReorder) return;
+                              setDraggingId(pkg.id);
+                              e.dataTransfer.setData("text/plain", pkg.id);
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => setDraggingId(null)}
+                            onDragOver={(e) => {
+                              if (!canReorder) return;
+                              e.preventDefault();
+                            }}
+                            onDrop={(e) => {
+                              if (!canReorder) return;
+                              e.preventDefault();
+                              const dragged = e.dataTransfer.getData("text/plain") || draggingId;
+                              handleDropOnInSection(section.key, pkg.id, dragged);
+                            }}
+                            className={draggingId === pkg.id ? "opacity-60" : ""}
+                          >
+                            <TableCell className={canReorder ? "text-slate-400 select-none cursor-grab" : "text-slate-300 select-none"}>
+                              ≡
+                            </TableCell>
+                            <TableCell className="font-medium">{pkg.name}</TableCell>
+                            <TableCell className="text-xs text-slate-600 max-w-[340px] truncate">{pkg.description || "-"}</TableCell>
+                            <TableCell>{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</TableCell>
+                            <TableCell>{pkg.speedMbps === null ? "-" : `${pkg.speedMbps} Mbps`}</TableCell>
+                            <TableCell>R{Number(pkg.price).toFixed(2)}</TableCell>
+                            <TableCell>{Number(pkg.durationDays)} Days</TableCell>
+                            <TableCell>
+                              <Badge variant={pkg.isActive ? "default" : "secondary"}>{pkg.isActive ? "Active" : "Inactive"}</Badge>
+                            </TableCell>
+                            <TableCell className="text-right space-x-2">
+                              <Button variant="outline" size="sm" onClick={() => openEditDialog(pkg)}>
+                                Edit
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => toggleStatus(pkg.id, pkg.isActive)}>
+                                Toggle Status
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => deletePackage(pkg)}
+                              >
+                                Delete
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {section.items.map((pkg) => (
+                      <div key={pkg.id} className="rounded-xl border border-slate-100 bg-white p-4 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 truncate">{pkg.name}</div>
+                            <div className="text-xs text-slate-500">
+                              {pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`} • {Number(pkg.durationDays)} Days
+                            </div>
+                          </div>
+                          <Badge variant={pkg.isActive ? "default" : "secondary"}>{pkg.isActive ? "Active" : "Inactive"}</Badge>
+                        </div>
+
+                        {pkg.description ? <div className="text-xs text-slate-600 max-h-12 overflow-hidden">{pkg.description}</div> : null}
+
+                        <div className="flex items-center justify-between pt-1">
+                          <div className="text-sm font-black text-slate-900">R{Number(pkg.price).toFixed(2)}</div>
+                          <div className="text-xs text-slate-500">{pkg.speedMbps === null ? "-" : `${pkg.speedMbps} Mbps`}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2">
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(pkg)} className="flex-1">
+                            Edit
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => toggleStatus(pkg.id, pkg.isActive)} className="flex-1">
+                            Toggle
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => deletePackage(pkg)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {isDialogOpen && (
