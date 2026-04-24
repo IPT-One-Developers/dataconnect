@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/authStore";
 import { api } from "../lib/api";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
@@ -10,6 +11,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const { login, signup } = useAuthStore();
   
@@ -34,7 +36,13 @@ export default function Login() {
     } catch (error: any) {
       console.error('Authentication Error', error);
       const msg = error?.code || error?.message || "request_failed";
-      alert(`Authentication failed: ${msg}.`);
+      if (msg === "email_exists") {
+        alert("An account with this email address already exists.");
+      } else if (msg === "phone_exists") {
+        alert("An account with this mobile number already exists.");
+      } else {
+        alert(`Authentication failed: ${msg}.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -63,7 +71,7 @@ export default function Login() {
         className="bg-slate-900 text-white px-6 py-12 sm:px-12 lg:px-16 flex relative bg-cover bg-center"
         style={{
           backgroundImage:
-            'linear-gradient(135deg, rgba(2, 6, 23, 0.58), rgba(15, 23, 42, 0.86)), url("https://images.unsplash.com/photo-1759210358926-4673cc44d35f?auto=format&fit=crop&w=1600&q=80")',
+            'linear-gradient(135deg, rgba(2, 6, 23, 0.58), rgba(15, 23, 42, 0.86)), url("/login-left-pane.jpg"), url("https://images.unsplash.com/photo-1759210358926-4673cc44d35f?auto=format&fit=crop&w=1600&q=80")',
         }}
       >
         <div className="w-full max-w-xl mx-auto flex flex-col justify-center relative z-10">
@@ -174,16 +182,26 @@ export default function Login() {
             </div>
             <div>
               <Label htmlFor="password" className="text-slate-700">Password</Label>
-              <Input 
-                id="password" 
-                type="password" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                placeholder="••••••••" 
-                className="mt-1"
-                required 
-                minLength={6}
-              />
+              <div className="relative mt-1">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="pr-10"
+                  required
+                  minLength={6}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                  onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               {isSignUp && <p className="text-xs text-slate-500 mt-1">Minimum 6 characters long.</p>}
               {!isSignUp && (
                 <div className="mt-2 flex justify-end">

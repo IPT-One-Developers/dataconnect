@@ -101,6 +101,14 @@ function cleanPhoneNumber(input: string): string {
     .replace(/[^\d+]/g, "");
 }
 
+function getUniqueConstraintErrorCode(err: any): "email_exists" | "phone_exists" | null {
+  const code = String(err?.code || "");
+  if (code !== "23505") return null;
+  const constraint = String(err?.constraint || "");
+  if (constraint.includes("users_phone_unique_idx")) return "phone_exists";
+  return "email_exists";
+}
+
 async function sendZoomconnectSms(recipientNumber: string, message: string) {
   const token = ZOOMCONNECT_URL_TOKEN.trim();
   const number = cleanPhoneNumber(recipientNumber);
@@ -349,6 +357,7 @@ async function ensureExtendedSchema() {
          updated_at timestamptz not null default now()
        );`
     ).catch(() => {});
+    await pool.query(`create unique index if not exists users_phone_unique_idx on users(phone) where phone <> '';`).catch(() => {});
 
     await pool.query(
       `create table if not exists sessions (
@@ -1026,7 +1035,7 @@ async function startServer() {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "");
     const name = String(req.body?.name || "").trim();
-    const phone = String(req.body?.phone || "").trim();
+    const phone = cleanPhoneNumber(String(req.body?.phone || ""));
     if (!email || !password) return res.status(400).json({ error: "invalid_input" });
     if (password.length < 8) return res.status(400).json({ error: "password_too_short" });
 
@@ -1034,6 +1043,13 @@ async function startServer() {
 
     let userRow: any;
     try {
+      const existing = await pool.query(
+        "select id, email, phone from users where email = $1 or ($2 <> '' and phone = $2) limit 1",
+        [email, phone]
+      );
+      if (existing.rows[0]?.email === email) return res.status(409).json({ error: "email_exists" });
+      if (existing.rows[0]?.phone === phone) return res.status(409).json({ error: "phone_exists" });
+
       const insert = await pool.query(
         `insert into users (email, password_hash, name, phone, role, status)
          values ($1, $2, $3, $4, 'admin', 'active')
@@ -1042,7 +1058,8 @@ async function startServer() {
       );
       userRow = insert.rows[0];
     } catch (e: any) {
-      if (String(e?.code || "") === "23505") return res.status(409).json({ error: "email_exists" });
+      const uniqueErr = getUniqueConstraintErrorCode(e);
+      if (uniqueErr) return res.status(409).json({ error: uniqueErr });
       return res.status(503).json({ error: "db_unavailable" });
     }
 
@@ -1073,7 +1090,7 @@ async function startServer() {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "");
     const name = String(req.body?.name || "").trim();
-    const phone = String(req.body?.phone || "").trim();
+    const phone = cleanPhoneNumber(String(req.body?.phone || ""));
     if (!email || !password) return res.status(400).json({ error: "invalid_input" });
     if (password.length < 6) return res.status(400).json({ error: "password_too_short" });
 
@@ -1081,6 +1098,13 @@ async function startServer() {
 
     let userRow: any;
     try {
+      const existing = await pool.query(
+        "select id, email, phone from users where email = $1 or ($2 <> '' and phone = $2) limit 1",
+        [email, phone]
+      );
+      if (existing.rows[0]?.email === email) return res.status(409).json({ error: "email_exists" });
+      if (existing.rows[0]?.phone === phone) return res.status(409).json({ error: "phone_exists" });
+
       let role: "admin" | "staff" | "client" = "client";
       if (email === "microdevelopers8@gmail.com") {
         try {
@@ -1098,7 +1122,8 @@ async function startServer() {
       );
       userRow = insert.rows[0];
     } catch (e: any) {
-      if (String(e?.code || "") === "23505") return res.status(409).json({ error: "email_exists" });
+      const uniqueErr = getUniqueConstraintErrorCode(e);
+      if (uniqueErr) return res.status(409).json({ error: uniqueErr });
       return res.status(503).json({ error: "db_unavailable" });
     }
 
@@ -1424,7 +1449,7 @@ async function startServer() {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "");
     const name = String(req.body?.name || "").trim();
-    const phone = String(req.body?.phone || "").trim();
+    const phone = cleanPhoneNumber(String(req.body?.phone || ""));
     const role = String(req.body?.role || "client");
     if (!email || !password) return res.status(400).json({ error: "invalid_input" });
     if (password.length < 6) return res.status(400).json({ error: "password_too_short" });
@@ -1432,6 +1457,13 @@ async function startServer() {
 
     const passwordHash = await bcrypt.hash(password, 12);
     try {
+      const existing = await pool.query(
+        "select id, email, phone from users where email = $1 or ($2 <> '' and phone = $2) limit 1",
+        [email, phone]
+      );
+      if (existing.rows[0]?.email === email) return res.status(409).json({ error: "email_exists" });
+      if (existing.rows[0]?.phone === phone) return res.status(409).json({ error: "phone_exists" });
+
       const { rows } = await pool.query(
         `insert into users (email, password_hash, name, phone, role, status)
          values ($1, $2, $3, $4, $5, 'active')
@@ -1451,8 +1483,10 @@ async function startServer() {
           createdAt: u.created_at,
         },
       });
-    } catch {
-      res.status(409).json({ error: "email_exists" });
+    } catch (e: any) {
+      const uniqueErr = getUniqueConstraintErrorCode(e);
+      if (uniqueErr) return res.status(409).json({ error: uniqueErr });
+      res.status(503).json({ error: "db_unavailable" });
     }
   });
 
@@ -1461,7 +1495,7 @@ async function startServer() {
     const role = req.body?.role ? String(req.body.role) : null;
     const status = req.body?.status ? String(req.body.status) : null;
     const name = req.body?.name !== undefined ? String(req.body.name) : null;
-    const phone = req.body?.phone !== undefined ? String(req.body.phone) : null;
+    const phone = req.body?.phone !== undefined ? cleanPhoneNumber(String(req.body.phone || "")) : null;
 
     const sets: string[] = [];
     const values: any[] = [];
@@ -1488,26 +1522,32 @@ async function startServer() {
     if (sets.length === 0) return res.status(400).json({ error: "no_updates" });
 
     values.push(userId);
-    const { rows } = await pool.query(
-      `update users set ${sets.join(", ")}, updated_at = now()
-       where id = $${idx}
-       returning id, email, name, phone, role, status, photo_url, created_at`,
-      values
-    );
-    if (!rows[0]) return res.status(404).json({ error: "not_found" });
-    const u = rows[0];
-    res.json({
-      user: {
-        id: u.id,
-        email: u.email,
-        name: u.name,
-        phone: u.phone,
-        role: u.role,
-        status: u.status,
-        photoURL: u.photo_url ?? null,
-        createdAt: u.created_at,
-      },
-    });
+    try {
+      const { rows } = await pool.query(
+        `update users set ${sets.join(", ")}, updated_at = now()
+         where id = $${idx}
+         returning id, email, name, phone, role, status, photo_url, created_at`,
+        values
+      );
+      if (!rows[0]) return res.status(404).json({ error: "not_found" });
+      const u = rows[0];
+      res.json({
+        user: {
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          phone: u.phone,
+          role: u.role,
+          status: u.status,
+          photoURL: u.photo_url ?? null,
+          createdAt: u.created_at,
+        },
+      });
+    } catch (e: any) {
+      const uniqueErr = getUniqueConstraintErrorCode(e);
+      if (uniqueErr) return res.status(409).json({ error: uniqueErr });
+      res.status(503).json({ error: "db_unavailable" });
+    }
   });
 
   app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
