@@ -27,6 +27,16 @@ export default function AdminLtePackages() {
     isActive: true,
   });
 
+  const normalizeDecimalInput = (raw: string) => String(raw || "").replace(/[^\d.,]/g, "");
+
+  const toNumberOrNull = (raw: string) => {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.replace(",", ".");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : NaN;
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -91,12 +101,28 @@ export default function AdminLtePackages() {
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     try {
+      const dataCapGB = toNumberOrNull(formData.dataCapGB);
+      const dayCapGB = toNumberOrNull(formData.dayCapGB);
+      const nightCapGB = toNumberOrNull(formData.nightCapGB);
+      if (dataCapGB !== null && Number.isNaN(dataCapGB)) {
+        alert("Total cap must be a valid number (e.g. 12.5 or 12,5).");
+        return;
+      }
+      if (dayCapGB !== null && Number.isNaN(dayCapGB)) {
+        alert("Day cap must be a valid number (e.g. 12.5 or 12,5).");
+        return;
+      }
+      if (nightCapGB !== null && Number.isNaN(nightCapGB)) {
+        alert("Night cap must be a valid number (e.g. 12.5 or 12,5).");
+        return;
+      }
+
       const payload = {
         name: formData.name,
         description: formData.description,
-        dataCapGB: formData.dataCapGB === "" ? null : Number(formData.dataCapGB),
-        dayCapGB: formData.dayCapGB === "" ? null : Number(formData.dayCapGB),
-        nightCapGB: formData.nightCapGB === "" ? null : Number(formData.nightCapGB),
+        dataCapGB,
+        dayCapGB,
+        nightCapGB,
         speedMbps: formData.speedMbps === "" ? null : Number(formData.speedMbps),
         network: formData.network,
         price: Number(formData.price),
@@ -277,12 +303,12 @@ export default function AdminLtePackages() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label>Cap (GB)</Label>
+                  <Label>Total Cap (GB)</Label>
                   <Input
-                    type="number"
-                    step="1"
+                    type="text"
+                    inputMode="decimal"
                     value={formData.dataCapGB}
-                    onChange={(e) => setFormData({ ...formData, dataCapGB: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, dataCapGB: normalizeDecimalInput(e.target.value) })}
                     placeholder="Leave blank for uncapped"
                   />
                 </div>
@@ -301,20 +327,20 @@ export default function AdminLtePackages() {
                 <div className="grid gap-2">
                   <Label>Day Cap (GB)</Label>
                   <Input
-                    type="number"
-                    step="1"
+                    type="text"
+                    inputMode="decimal"
                     value={formData.dayCapGB}
-                    onChange={(e) => setFormData({ ...formData, dayCapGB: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, dayCapGB: normalizeDecimalInput(e.target.value) })}
                     placeholder="Optional"
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label>Night Cap (GB)</Label>
                   <Input
-                    type="number"
-                    step="1"
+                    type="text"
+                    inputMode="decimal"
                     value={formData.nightCapGB}
-                    onChange={(e) => setFormData({ ...formData, nightCapGB: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, nightCapGB: normalizeDecimalInput(e.target.value) })}
                     placeholder="Optional"
                   />
                 </div>

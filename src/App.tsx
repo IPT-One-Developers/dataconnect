@@ -12,6 +12,7 @@ import ClientOrders from "./pages/client/Orders";
 import ClientLteOrders from "./pages/client/LteOrders";
 import ClientSims from "./pages/client/Sims";
 import ClientTransactions from "./pages/client/Transactions";
+import ClientCoverageChecks from "./pages/client/CoverageChecks";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminPackages from "./pages/admin/Packages";
 import AdminLtePackages from "./pages/admin/LtePackages";
@@ -19,6 +20,7 @@ import AdminSims from "./pages/admin/Sims";
 import AdminUsers from "./pages/admin/Users";
 import AdminReports from "./pages/admin/Reports";
 import AdminOrders from "./pages/admin/Orders";
+import AdminCoverageChecks from "./pages/admin/CoverageChecks";
 import AdminClientDetails from "./pages/admin/ClientDetails";
 import AdminSettings from "./pages/admin/Settings";
 import ClientSettings from "./pages/client/Settings";
@@ -48,6 +50,7 @@ export default function App() {
           <Route index element={<ClientDashboard />} />
           <Route path="orders" element={<ClientOrders />} />
           <Route path="lte-orders" element={<ClientLteOrders />} />
+          <Route path="coverage-checks" element={<ClientCoverageChecks />} />
           <Route path="packages" element={<Packages />} />
           <Route path="sims" element={<ClientSims />} />
           <Route path="transactions" element={<ClientTransactions />} />
@@ -58,6 +61,7 @@ export default function App() {
         <Route path="/admin" element={user && role === "admin" ? <MainLayout /> : <Navigate to="/login" />}>
           <Route index element={<AdminDashboard />} />
           <Route path="orders" element={<AdminOrders />} />
+          <Route path="coverage-checks" element={<AdminCoverageChecks />} />
           <Route path="packages" element={<AdminPackages />} />
           <Route path="lte-packages" element={<AdminLtePackages />} />
           <Route path="sims" element={<AdminSims />} />

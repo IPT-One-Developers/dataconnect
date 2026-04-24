@@ -29,7 +29,11 @@ export default function ClientSims() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [confirmPaid, setConfirmPaid] = useState(false);
-  const [byoSimForm, setByoSimForm] = useState({ phoneNumber: "" });
+  const [byoSimForm, setByoSimForm] = useState({
+    phoneNumber: "",
+    confirmPhoneNumber: "",
+    accepted: false,
+  });
   const [orderForm, setOrderForm] = useState({
     firstName: "",
     lastName: "",
@@ -142,8 +146,17 @@ export default function ClientSims() {
 
   const addOwnSim = async () => {
     const phoneNumber = String(byoSimForm.phoneNumber || "").trim();
+    const confirmPhoneNumber = String(byoSimForm.confirmPhoneNumber || "").trim();
     if (!phoneNumber) {
       alert("Please enter your MTN phone number.");
+      return;
+    }
+    if (phoneNumber !== confirmPhoneNumber) {
+      alert("MTN phone number fields do not match.");
+      return;
+    }
+    if (!byoSimForm.accepted) {
+      alert("Please accept the confirmation checkbox before adding your MTN SIM.");
       return;
     }
     setAddingSim(true);
@@ -152,7 +165,7 @@ export default function ClientSims() {
         method: "POST",
         body: JSON.stringify({ phoneNumber }),
       });
-      setByoSimForm({ phoneNumber: "" });
+      setByoSimForm({ phoneNumber: "", confirmPhoneNumber: "", accepted: false });
       await loadAll();
       alert("Your MTN SIM has been added. You can now place Data Bundle top-up orders for it.");
     } catch (e: any) {
@@ -191,12 +204,36 @@ export default function ClientSims() {
               placeholder="e.g. 27xxxxxxxxx"
             />
           </div>
+          <div className="grid gap-2">
+            <Label>Confirm MTN Phone Number</Label>
+            <Input
+              value={byoSimForm.confirmPhoneNumber}
+              onChange={(e) => setByoSimForm({ ...byoSimForm, confirmPhoneNumber: e.target.value })}
+              placeholder="Re-enter MTN phone number"
+            />
+          </div>
         </div>
-        <div className="text-xs text-slate-500">
-          Note: Only MTN SIM cards are supported. Please ensure the phone number is correct so the admin can allocate bundles.
+        <div className="text-xs text-slate-500 whitespace-pre-line">
+          Only MTN SIM cards are supported. Please ensure the phone number is correct so DataConnect can allocate your data bundles. If data bundles are allocated to the wrong number DataConnect can not be held responsible and is irreversable.
         </div>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={byoSimForm.accepted}
+            onChange={(e) => setByoSimForm({ ...byoSimForm, accepted: e.target.checked })}
+          />
+          I confirm the MTN number is correct
+        </label>
         <div className="flex justify-end">
-          <Button onClick={addOwnSim} disabled={addingSim}>
+          <Button
+            onClick={addOwnSim}
+            disabled={
+              addingSim ||
+              !String(byoSimForm.phoneNumber || "").trim() ||
+              String(byoSimForm.phoneNumber || "").trim() !== String(byoSimForm.confirmPhoneNumber || "").trim() ||
+              !byoSimForm.accepted
+            }
+          >
             {addingSim ? "Adding..." : "Add MTN SIM"}
           </Button>
         </div>

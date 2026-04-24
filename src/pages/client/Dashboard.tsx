@@ -1,35 +1,24 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { formatAddress, SA_PROVINCES } from "../../lib/utils";
 import { useAuthStore } from "../../store/authStore";
 import { CalendarClock, Package, Signal, Wifi } from "lucide-react";
-import { Button } from "../../../components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
-import { Input } from "../../../components/ui/input";
-import { Label } from "../../../components/ui/label";
 import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table";
 import { format } from "date-fns";
+import { useNavigate } from "react-router-dom";
 
 export default function ClientDashboard() {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [sims, setSims] = useState<any[]>([]);
-  const [coverageRequests, setCoverageRequests] = useState<any[]>([]);
-  const [ltePackages, setLtePackages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isCoverageDialogOpen, setIsCoverageDialogOpen] = useState(false);
-  const [coverageForm, setCoverageForm] = useState({
-    networkPreference: "",
-    line1: "",
-    line2: "",
-    suburb: "",
-    city: "",
-    province: "",
-    postalCode: "",
-    notes: "",
-  });
-  const [submittingCoverage, setSubmittingCoverage] = useState(false);
+  const [simView, setSimView] = useState<"cards" | "list">("cards");
+  const [simSearch, setSimSearch] = useState("");
+  const [simNetworkFilter, setSimNetworkFilter] = useState<string>("all");
+  const [simStatusFilter, setSimStatusFilter] = useState<string>("all");
 
   useEffect(() => {
     if (!user) return;
@@ -37,14 +26,8 @@ export default function ClientDashboard() {
     async function loadData() {
       try {
         setLoading(true);
-        const [simsRes, covRes, lteRes] = await Promise.all([
-          api<{ sims: any[] }>("/api/client/sims"),
-          api<{ requests: any[] }>("/api/client/coverage-checks"),
-          api<{ packages: any[] }>("/api/lte-packages?activeOnly=true"),
-        ]);
+        const simsRes = await api<{ sims: any[] }>("/api/client/sims");
         setSims(simsRes.sims);
-        setCoverageRequests(covRes.requests);
-        setLtePackages(lteRes.packages);
       } catch (err) {
         console.error(err);
       } finally {
@@ -55,54 +38,8 @@ export default function ClientDashboard() {
     loadData();
   }, [user]);
 
-  const submitCoverage = async () => {
-    if (!coverageForm.line1.trim() || !coverageForm.city.trim() || !coverageForm.province.trim()) {
-      alert("Please enter a full address (street, city, and province).");
-      return;
-    }
-    setSubmittingCoverage(true);
-    try {
-      const address = formatAddress({
-        line1: coverageForm.line1,
-        line2: coverageForm.line2,
-        suburb: coverageForm.suburb,
-        city: coverageForm.city,
-        province: coverageForm.province,
-        postalCode: coverageForm.postalCode,
-      });
-      await api("/api/client/coverage-checks", {
-        method: "POST",
-        body: JSON.stringify({
-          networkPreference: coverageForm.networkPreference,
-          address,
-          notes: coverageForm.notes,
-        }),
-      });
-      setCoverageForm({
-        networkPreference: "",
-        line1: "",
-        line2: "",
-        suburb: "",
-        city: "",
-        province: "",
-        postalCode: "",
-        notes: "",
-      });
-      setIsCoverageDialogOpen(false);
-      const covRes = await api<{ requests: any[] }>("/api/client/coverage-checks");
-      setCoverageRequests(covRes.requests);
-      alert("Coverage check request submitted.");
-    } catch (e) {
-      console.error(e);
-      alert("Failed to submit coverage request.");
-    } finally {
-      setSubmittingCoverage(false);
-    }
-  };
-
   if (loading) return <div>Loading...</div>;
 
-  const ltePackageById = new Map(ltePackages.map((p: any) => [p.id, p]));
   const simsWithActiveBundles = sims.filter((s: any) => s?.activeBundle);
   const activeSimsCount = sims.filter((s: any) => s?.status === "active").length;
   const totalRemainingMB = simsWithActiveBundles.reduce((sum: number, s: any) => sum + Number(s.activeBundle?.remainingAmountMB || 0), 0);
@@ -121,6 +58,34 @@ export default function ClientDashboard() {
     if (gb >= 1) return `${gb.toFixed(2)} GB`;
     return `${Math.max(0, Math.round(mb))} MB`;
   };
+
+  const networks = Array.from(
+    new Set(
+      sims
+        .map((s: any) => String(s?.network || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const statuses = Array.from(
+    new Set(
+      sims
+        .map((s: any) => String(s?.status || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const filteredSims = sims.filter((s: any) => {
+    const q = String(simSearch || "").trim().toLowerCase();
+    const phone = String(s?.phoneNumber || "").toLowerCase();
+    const iccid = String(s?.iccid || "").toLowerCase();
+    const network = String(s?.network || "");
+    const status = String(s?.status || "");
+    const matchesSearch = !q || phone.includes(q) || iccid.includes(q);
+    const matchesNetwork = simNetworkFilter === "all" || network === simNetworkFilter;
+    const matchesStatus = simStatusFilter === "all" || status === simStatusFilter;
+    return matchesSearch && matchesNetwork && matchesStatus;
+  });
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -179,47 +144,180 @@ export default function ClientDashboard() {
           {sims.length === 0 ? (
             <div className="text-sm text-slate-600">No SIM cards found.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {sims.map((s: any) => {
-                const totalMB = Number(s?.activeBundle?.totalAmountMB ?? 0);
-                const remainingMB = Number(s?.activeBundle?.remainingAmountMB ?? 0);
-                const pct = totalMB > 0 ? Math.max(0, Math.min(100, (remainingMB / totalMB) * 100)) : 0;
-                const expires = s?.activeBundle?.expiryDate ? new Date(s.activeBundle.expiryDate) : null;
-                const expiresText = expires && !Number.isNaN(expires.getTime()) ? format(expires, "yyyy-MM-dd") : "-";
-
-                return (
-                  <div key={s.id} className="rounded-xl border border-white/50 bg-white/50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-extrabold text-slate-900 truncate">{s.phoneNumber}</div>
-                        <div className="text-xs text-slate-600 truncate">{s.network || "-"}</div>
-                      </div>
-                      <Badge className={s.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}>
-                        {s.status}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 text-slate-700 font-semibold min-w-0">
-                          <Package className="h-3.5 w-3.5 text-indigo-600" />
-                          <span className="truncate">{s.activeBundle?.packageName || "No active bundle"}</span>
-                        </div>
-                        <div className="text-slate-500 font-semibold">{expiresText}</div>
-                      </div>
-
-                      <div className="h-2 w-full rounded-full bg-slate-200/60 overflow-hidden">
-                        <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-slate-600 font-semibold">
-                        <span>{s.activeBundle ? formatGB(remainingMB) : "-"}</span>
-                        <span className="text-slate-400">{s.activeBundle && totalMB ? formatGB(totalMB) : ""}</span>
-                      </div>
-                    </div>
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div className="grid gap-1.5">
+                    <div className="text-xs font-bold text-slate-600">Search</div>
+                    <Input
+                      value={simSearch}
+                      onChange={(e) => setSimSearch(e.target.value)}
+                      placeholder="Phone number or ICCID..."
+                      className="h-9 w-full md:w-[260px]"
+                    />
                   </div>
-                );
-              })}
+                  <div className="grid gap-1.5">
+                    <div className="text-xs font-bold text-slate-600">Network</div>
+                    <Select value={simNetworkFilter} onValueChange={setSimNetworkFilter}>
+                      <SelectTrigger className="h-9 w-full md:w-[220px]">
+                        <SelectValue placeholder="All networks" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {networks.map((n) => (
+                          <SelectItem key={n} value={n}>
+                            {n}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <div className="text-xs font-bold text-slate-600">Status</div>
+                    <Select value={simStatusFilter} onValueChange={setSimStatusFilter}>
+                      <SelectTrigger className="h-9 w-full md:w-[200px]">
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {statuses.map((st) => (
+                          <SelectItem key={st} value={st}>
+                            {st}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={simView === "cards" ? "default" : "outline"}
+                    className="h-9"
+                    onClick={() => setSimView("cards")}
+                  >
+                    Card View
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={simView === "list" ? "default" : "outline"}
+                    className="h-9"
+                    onClick={() => setSimView("list")}
+                  >
+                    List View
+                  </Button>
+                </div>
+              </div>
+
+              {filteredSims.length === 0 ? (
+                <div className="text-sm text-slate-600">No SIM cards match your search / filters.</div>
+              ) : simView === "list" ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Network</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Bundle</TableHead>
+                        <TableHead>Expiry</TableHead>
+                        <TableHead>Remaining</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredSims.map((s: any) => {
+                        const totalMB = Number(s?.activeBundle?.totalAmountMB ?? 0);
+                        const remainingMB = Number(s?.activeBundle?.remainingAmountMB ?? 0);
+                        const expires = s?.activeBundle?.expiryDate ? new Date(s.activeBundle.expiryDate) : null;
+                        const expiresText = expires && !Number.isNaN(expires.getTime()) ? format(expires, "yyyy-MM-dd") : "-";
+                        return (
+                          <TableRow key={s.id}>
+                            <TableCell className="font-semibold text-slate-800">{s.phoneNumber || "-"}</TableCell>
+                            <TableCell className="text-xs text-slate-600">{s.network || "-"}</TableCell>
+                            <TableCell>
+                              <Badge
+                                className={
+                                  s.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"
+                                }
+                              >
+                                {s.status || "-"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-700">{s.activeBundle?.packageName || "No active bundle"}</TableCell>
+                            <TableCell className="text-xs text-slate-600">{expiresText}</TableCell>
+                            <TableCell className="text-xs text-slate-700">
+                              {s.activeBundle ? formatGB(remainingMB) : "-"}
+                              {s.activeBundle && totalMB ? ` / ${formatGB(totalMB)}` : ""}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                className="h-8 bg-indigo-600 hover:bg-indigo-700"
+                                onClick={() => navigate("/client/orders")}
+                              >
+                                Order Data Bundle
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filteredSims.map((s: any) => {
+                    const totalMB = Number(s?.activeBundle?.totalAmountMB ?? 0);
+                    const remainingMB = Number(s?.activeBundle?.remainingAmountMB ?? 0);
+                    const pct = totalMB > 0 ? Math.max(0, Math.min(100, (remainingMB / totalMB) * 100)) : 0;
+                    const expires = s?.activeBundle?.expiryDate ? new Date(s.activeBundle.expiryDate) : null;
+                    const expiresText = expires && !Number.isNaN(expires.getTime()) ? format(expires, "yyyy-MM-dd") : "-";
+
+                    return (
+                      <div key={s.id} className="rounded-xl border border-white/50 bg-white/50 p-4 flex flex-col">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-extrabold text-slate-900 truncate">{s.phoneNumber}</div>
+                            <div className="text-xs text-slate-600 truncate">{s.network || "-"}</div>
+                          </div>
+                          <Badge
+                            className={
+                              s.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"
+                            }
+                          >
+                            {s.status}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-1.5 text-slate-700 font-semibold min-w-0">
+                              <Package className="h-3.5 w-3.5 text-indigo-600" />
+                              <span className="truncate">{s.activeBundle?.packageName || "No active bundle"}</span>
+                            </div>
+                            <div className="text-slate-500 font-semibold">{expiresText}</div>
+                          </div>
+
+                          <div className="h-2 w-full rounded-full bg-slate-200/60 overflow-hidden">
+                            <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] text-slate-600 font-semibold">
+                            <span>{s.activeBundle ? formatGB(remainingMB) : "-"}</span>
+                            <span className="text-slate-400">{s.activeBundle && totalMB ? formatGB(totalMB) : ""}</span>
+                          </div>
+                        </div>
+
+                        <Button className="mt-4 bg-indigo-600 hover:bg-indigo-700" onClick={() => navigate("/client/orders")}>
+                          Order Data Bundle
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -232,150 +330,6 @@ export default function ClientDashboard() {
            <p className="text-sm font-medium text-slate-600">No new alerts right now. You're doing great!</p>
         </div>
       </section>
-
-      <section className="space-y-4">
-        <div className="flex items-end justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">Coverage Check</h2>
-            <p className="text-sm text-slate-500 mt-1">Request an LTE / 5G coverage check for your address.</p>
-          </div>
-          <Button onClick={() => setIsCoverageDialogOpen(true)} className="bg-indigo-600 hover:bg-indigo-700">
-            Request Check
-          </Button>
-        </div>
-
-        <div className="glass-card p-5">
-          {coverageRequests.length === 0 ? (
-            <div className="text-sm text-slate-600">No coverage requests yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Address</TableHead>
-                    <TableHead>Network Pref</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Admin Comment</TableHead>
-                    <TableHead>Suggested Packages</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {coverageRequests.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell className="text-xs text-slate-600">
-                        {r.createdAt ? format(new Date(r.createdAt), "yyyy-MM-dd HH:mm") : "-"}
-                      </TableCell>
-                      <TableCell className="text-sm font-semibold text-slate-800">{r.address}</TableCell>
-                      <TableCell className="text-xs text-slate-600">{r.networkPreference || "-"}</TableCell>
-                      <TableCell>
-                        <Badge
-                          className={
-                            r.status === "closed"
-                              ? "bg-slate-100 text-slate-700"
-                              : r.status === "responded"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-amber-100 text-amber-700"
-                          }
-                        >
-                          {r.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-700">{r.adminComment || "-"}</TableCell>
-                      <TableCell className="text-xs text-slate-700">
-                        {Array.isArray(r.suggestedPackageIds) && r.suggestedPackageIds.length > 0
-                          ? r.suggestedPackageIds
-                              .map((id: string) => ltePackageById.get(id)?.name)
-                              .filter(Boolean)
-                              .join(", ")
-                          : "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {isCoverageDialogOpen && (
-        <Dialog open={isCoverageDialogOpen} onOpenChange={setIsCoverageDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Request Coverage Check</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div className="grid gap-2">
-                <Label>Network Preference</Label>
-                <Input
-                  value={coverageForm.networkPreference}
-                  onChange={(e) => setCoverageForm({ ...coverageForm, networkPreference: e.target.value })}
-                  placeholder="e.g. MTN / Vodacom (optional)"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Address</Label>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    value={coverageForm.line1}
-                    onChange={(e) => setCoverageForm({ ...coverageForm, line1: e.target.value })}
-                    placeholder="Street address"
-                  />
-                  <Input
-                    value={coverageForm.line2}
-                    onChange={(e) => setCoverageForm({ ...coverageForm, line2: e.target.value })}
-                    placeholder="Apartment, unit, etc. (optional)"
-                  />
-                  <Input
-                    value={coverageForm.suburb}
-                    onChange={(e) => setCoverageForm({ ...coverageForm, suburb: e.target.value })}
-                    placeholder="Suburb (optional)"
-                  />
-                  <Input
-                    value={coverageForm.city}
-                    onChange={(e) => setCoverageForm({ ...coverageForm, city: e.target.value })}
-                    placeholder="City / Town"
-                  />
-                  <Select value={coverageForm.province} onValueChange={(v) => setCoverageForm({ ...coverageForm, province: v })}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Province" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SA_PROVINCES.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {p}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={coverageForm.postalCode}
-                    onChange={(e) => setCoverageForm({ ...coverageForm, postalCode: e.target.value })}
-                    placeholder="Postal code (optional)"
-                  />
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <Label>Notes</Label>
-                <Input
-                  value={coverageForm.notes}
-                  onChange={(e) => setCoverageForm({ ...coverageForm, notes: e.target.value })}
-                  placeholder="Optional"
-                />
-              </div>
-            </div>
-            <DialogFooter className="mt-4">
-              <Button variant="outline" onClick={() => setIsCoverageDialogOpen(false)} disabled={submittingCoverage}>
-                Cancel
-              </Button>
-              <Button onClick={submitCoverage} disabled={submittingCoverage}>
-                {submittingCoverage ? "Submitting..." : "Submit"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 }

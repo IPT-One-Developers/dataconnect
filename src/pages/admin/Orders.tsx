@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
@@ -9,6 +10,8 @@ import { Badge } from "../../../components/ui/badge";
 import { format } from "date-fns";
 
 export default function AdminOrders() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [view, setView] = useState<"topups" | "lte" | "sim" | "coverage">("topups");
   const [status, setStatus] = useState<string>("pending");
   const [orders, setOrders] = useState<any[]>([]);
@@ -50,8 +53,23 @@ export default function AdminOrders() {
   };
 
   useEffect(() => {
+    const v = new URLSearchParams(location.search).get("view");
+    if (v === "topups" || v === "lte" || v === "sim" || v === "coverage") {
+      setView(v);
+      setStatus(v === "coverage" ? "open" : "pending");
+    }
+  }, [location.search]);
+
+  useEffect(() => {
     loadOrders();
   }, [view, status]);
+
+  const setViewWithUrl = (nextView: "topups" | "lte" | "sim" | "coverage") => {
+    setView(nextView);
+    setStatus(nextView === "coverage" ? "open" : "pending");
+    const search = nextView === "topups" ? "" : `?view=${nextView}`;
+    navigate(`${location.pathname}${search}`, { replace: true });
+  };
 
   const handleFulfillOrder = async (order: any) => {
     try {
@@ -190,8 +208,7 @@ export default function AdminOrders() {
               type="button"
               className={`px-3 py-2 text-xs font-bold ${view === "topups" ? "bg-slate-900 text-white" : "bg-white text-slate-700"}`}
               onClick={() => {
-                setView("topups");
-                setStatus("pending");
+                setViewWithUrl("topups");
               }}
             >
               Top-Ups
@@ -200,8 +217,7 @@ export default function AdminOrders() {
               type="button"
               className={`px-3 py-2 text-xs font-bold ${view === "lte" ? "bg-slate-900 text-white" : "bg-white text-slate-700"}`}
               onClick={() => {
-                setView("lte");
-                setStatus("pending");
+                setViewWithUrl("lte");
               }}
             >
               LTE / 5G
@@ -210,8 +226,7 @@ export default function AdminOrders() {
               type="button"
               className={`px-3 py-2 text-xs font-bold ${view === "sim" ? "bg-slate-900 text-white" : "bg-white text-slate-700"}`}
               onClick={() => {
-                setView("sim");
-                setStatus("pending");
+                setViewWithUrl("sim");
               }}
             >
               SIM Orders
@@ -220,8 +235,7 @@ export default function AdminOrders() {
               type="button"
               className={`px-3 py-2 text-xs font-bold ${view === "coverage" ? "bg-slate-900 text-white" : "bg-white text-slate-700"}`}
               onClick={() => {
-                setView("coverage");
-                setStatus("open");
+                setViewWithUrl("coverage");
               }}
             >
               Coverage

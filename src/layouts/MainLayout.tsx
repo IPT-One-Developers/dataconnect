@@ -22,6 +22,7 @@ export default function MainLayout() {
     { name: 'My SIMs', href: '/client/sims', icon: SimCardIcon },
     { name: 'Data Orders', href: '/client/orders', icon: SignalHigh },
     { name: 'LTE / 5G Orders', href: '/client/lte-orders', icon: SignalHigh },
+    { name: 'Coverage Checks', href: '/client/coverage-checks', icon: SignalHigh },
     { name: 'Transactions', href: '/client/transactions', icon: History },
     { name: 'Settings', href: '/client/settings', icon: Bell },
   ];
@@ -29,6 +30,7 @@ export default function MainLayout() {
   const adminLinks = [
     { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { name: 'TopUp Orders', href: '/admin/orders', icon: History },
+    { name: 'Coverage Checks', href: '/admin/coverage-checks', icon: History },
     { name: 'Manage Packages', href: '/admin/packages', icon: Package },
     { name: 'LTE / 5G Packages', href: '/admin/lte-packages', icon: SignalHigh },
     { name: 'Manage SIM IDs', href: '/admin/sims', icon: SimCardIcon },
@@ -53,7 +55,7 @@ export default function MainLayout() {
         </div>
         <nav className="flex-1 px-4 py-4 space-y-2">
           {links.map((item) => {
-            const isActive = location.pathname === item.href;
+            const isActive = `${location.pathname}${location.search}` === item.href;
             return (
               <Link
                 key={item.href}
