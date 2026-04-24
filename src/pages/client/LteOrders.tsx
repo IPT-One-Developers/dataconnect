@@ -146,65 +146,106 @@ export default function ClientLteOrders() {
         <p className="text-sm text-slate-500 mt-1">Order LTE / 5G packages and track your order history.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
-        {packages.map((pkg, i) => {
-          const borders = ["border-t-indigo-500", "border-t-purple-500", "border-t-slate-800", "border-t-emerald-500"];
-          const borderClass = borders[i % borders.length];
-          return (
-            <div key={pkg.id} className={`glass-card p-5 text-center border-t-4 flex flex-col ${borderClass}`}>
-              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">{pkg.name}</p>
-              <h3 className="text-xl font-black my-2">
-                {pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}
-                <span className="text-sm font-normal ml-1 text-slate-500">{pkg.durationDays} Days</span>
-              </h3>
-              {pkg.speedMbps === null || pkg.speedMbps === undefined ? null : (
-                <p className="text-sm text-slate-600">{`${pkg.speedMbps} Mbps`}</p>
-              )}
-              <p className="text-lg font-bold text-slate-800 mb-2 mt-2">R {Number(pkg.price).toFixed(2)}</p>
-              {String(pkg.description || "").trim() ? (
-                <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
-              ) : null}
-              {String(pkg.fup || "").trim() ? (
-                <div className="text-[10px] text-slate-500 mb-4 whitespace-pre-wrap">
-                  <div className="font-semibold text-slate-600">FUP</div>
-                  <div>{String(pkg.fup || "").trim()}</div>
+      {(() => {
+        const providers = ["MTN", "Vodacom", "Telkom"] as const;
+        type NetworkKey = "MTN" | "Vodacom" | "Telkom" | "other";
+        const getNetworkKey = (network: any): NetworkKey => {
+          const n = String(network || "").trim();
+          if (n === "MTN") return "MTN";
+          if (n === "Vodacom") return "Vodacom";
+          if (n === "Telkom") return "Telkom";
+          return "other";
+        };
+
+        const byNetwork: Record<NetworkKey, any[]> = { MTN: [], Vodacom: [], Telkom: [], other: [] };
+        for (const pkg of packages) {
+          byNetwork[getNetworkKey(pkg.network)].push(pkg);
+        }
+
+        const providerSections: { key: NetworkKey; title: string; items: any[] }[] = providers.map((p) => ({
+          key: p,
+          title: p,
+          items: byNetwork[p],
+        }));
+        const otherSection: { key: NetworkKey; title: string; items: any[] } = { key: "other", title: "Other", items: byNetwork.other };
+        const sections = [...providerSections, otherSection].filter((s) => s.items.length > 0) as { key: NetworkKey; title: string; items: any[] }[];
+
+        const borders = ["border-t-indigo-500", "border-t-purple-500", "border-t-slate-800", "border-t-emerald-500"];
+
+        if (sections.length === 0) {
+          return <div className="text-sm text-slate-500">No LTE / 5G packages available right now.</div>;
+        }
+
+        return (
+          <div className="space-y-8">
+            {sections.map((section) => (
+              <div key={section.key} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
+                  <Badge variant="outline">{section.items.length}</Badge>
                 </div>
-              ) : (
-                <div className="mb-4" />
-              )}
-              <button
-                className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
-                onClick={() => {
-                  const fullName = String(user?.name || "").trim();
-                  const parts = fullName ? fullName.split(/\s+/) : [];
-                  const firstName = parts[0] || "";
-                  const lastName = parts.slice(1).join(" ");
-                  setSelectedPkg(pkg);
-                  setPaymentRef(createPaymentRef());
-                  setPaymentMethod("");
-                  setConfirmPaid(false);
-                  setForm({
-                    firstName,
-                    lastName,
-                    email: String(user?.email || ""),
-                    mobile: String(user?.phone || ""),
-                    whatsapp: String(user?.phone || ""),
-                    line1: "",
-                    line2: "",
-                    suburb: "",
-                    city: "",
-                    province: "",
-                    postalCode: "",
-                    notes: "",
-                  });
-                }}
-              >
-                Order LTE / 5G
-              </button>
-            </div>
-          );
-        })}
-      </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {section.items.map((pkg, i) => {
+                    const borderClass = borders[i % borders.length];
+                    return (
+                      <div key={pkg.id} className={`glass-card p-5 text-center border-t-4 flex flex-col ${borderClass}`}>
+                        <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">{pkg.name}</p>
+                        <h3 className="text-xl font-black my-2">{pkg.dataCapGB === null ? "Uncapped" : `${pkg.dataCapGB} GB`}</h3>
+                        <span className="text-sm font-normal text-slate-500">{pkg.durationDays} Days</span>
+                        {pkg.speedMbps === null || pkg.speedMbps === undefined ? null : (
+                          <p className="text-sm text-slate-600 mt-1">{`${pkg.speedMbps} Mbps`}</p>
+                        )}
+                        <p className="text-lg font-bold text-slate-800 mb-2 mt-2">R {Number(pkg.price).toFixed(2)}</p>
+                        {String(pkg.description || "").trim() ? (
+                          <p className="text-[10px] text-slate-400 mb-2">{String(pkg.description || "").trim()}</p>
+                        ) : null}
+                        {String(pkg.fup || "").trim() ? (
+                          <div className="text-[10px] text-slate-500 mb-4 whitespace-pre-wrap">
+                            <div className="font-semibold text-slate-600">FUP</div>
+                            <div>{String(pkg.fup || "").trim()}</div>
+                          </div>
+                        ) : (
+                          <div className="mb-4" />
+                        )}
+                        <button
+                          className="w-full mt-auto py-2 border border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg transition-colors"
+                          onClick={() => {
+                            const fullName = String(user?.name || "").trim();
+                            const parts = fullName ? fullName.split(/\s+/) : [];
+                            const firstName = parts[0] || "";
+                            const lastName = parts.slice(1).join(" ");
+                            setSelectedPkg(pkg);
+                            setPaymentRef(createPaymentRef());
+                            setPaymentMethod("");
+                            setConfirmPaid(false);
+                            setForm({
+                              firstName,
+                              lastName,
+                              email: String(user?.email || ""),
+                              mobile: String(user?.phone || ""),
+                              whatsapp: String(user?.phone || ""),
+                              line1: "",
+                              line2: "",
+                              suburb: "",
+                              city: "",
+                              province: "",
+                              postalCode: "",
+                              notes: "",
+                            });
+                          }}
+                        >
+                          Order LTE / 5G
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       <div className="glass-card p-6">
         <div className="flex items-center justify-between mb-4">
